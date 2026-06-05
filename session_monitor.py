@@ -60,19 +60,21 @@ def _find_transcript(session_id: str, cwd: str) -> Optional[str]:
 
 
 def _read_last_assistant_line(path: str) -> Optional[dict]:
-    """Read the last ~8KB of a JSONL file and return the last assistant line."""
+    """Read the last 64KB of a JSONL and return the last assistant entry."""
+    return _read_tail_assistant(path, seek_back=65536)
+
+
+def _read_tail_assistant(path: str, seek_back: int) -> Optional[dict]:
+    """Seek back seek_back bytes from EOF, find the last 'assistant' JSON line."""
     try:
         with open(path, "rb") as f:
             f.seek(0, os.SEEK_END)
             size = f.tell()
-            if size < 10:
-                return None
-            chunk_start = max(0, size - 8192)
+            chunk_start = max(0, size - seek_back)
             f.seek(chunk_start)
             raw = f.read()
             text = raw.decode("utf-8", errors="ignore")
-            lines = text.strip().split("\n")
-            for line in reversed(lines):
+            for line in reversed(text.strip().split("\n")):
                 line = line.strip()
                 if not line:
                     continue
@@ -85,6 +87,30 @@ def _read_last_assistant_line(path: str) -> Optional[dict]:
         return None
     except (OSError, IOError):
         return None
+
+
+def _read_max_input_tokens(path: str) -> int:
+    """Scan the full transcript, return the maximum input_tokens seen.
+    This represents the peak context window depth (last turn per model convention)."""
+    max_val = 0
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("type") == "assistant":
+                    u = obj.get("message", {}).get("usage", {})
+                    inv = u.get("input_tokens", 0)
+                    if inv > max_val:
+                        max_val = inv
+        return max_val
+    except (OSError, IOError):
+        return 0
 
 
 def _read_git_branch(path: str) -> str:
@@ -248,33 +274,33 @@ class SessionMonitor:
             if tpath:
                 snap.git_branch = _read_git_branch(tpath).replace("HEAD", "")
                 snap.subagent_count = _count_subagents(cwd, sid)
+
+                # Model info from last assistant line (tail 64KB)
                 last = _read_last_assistant_line(tpath)
                 if last:
-                    usage = last.get("message", {}).get("usage", {})
                     snap.model = last.get("message", {}).get("model", "?")
-                    snap.input_tokens = usage.get("input_tokens", 0)
-                    snap.output_tokens = usage.get("output_tokens", 0)
+                    snap.output_tokens = last.get("message", {}).get("usage", {}).get("output_tokens", 0)
 
-                    # Accumulate totals for this session
-                    if sid not in self._session_totals:
-                        self._session_totals[sid] = {"in": 0, "out": 0}
-                    prev = self._session_totals[sid]
-                    # Use max in case transcript is truncated
-                    prev["in"] = max(prev["in"], snap.input_tokens)
-                    prev["out"] = max(prev["out"], snap.output_tokens)
-                    snap.input_tokens = prev["in"]
-                    snap.output_tokens = prev["out"]
+                # Context = peak input_tokens across all turns
+                peak_input = _read_max_input_tokens(tpath)
+                if sid not in self._session_totals:
+                    self._session_totals[sid] = {"in": 0, "out": 0}
+                prev = self._session_totals[sid]
+                prev["in"] = max(prev["in"], peak_input)
+                prev["out"] = max(prev["out"], snap.output_tokens)
+                snap.input_tokens = prev["in"]
+                snap.output_tokens = prev["out"]
 
-                    # Context %
-                    max_ctx = MODEL_CONTEXT.get(snap.model, 200_000)
-                    snap.context_pct = round(snap.input_tokens / max_ctx * 100, 1)
+                # Context % based on peak input vs model max
+                max_ctx = MODEL_CONTEXT.get(snap.model, 200_000)
+                snap.context_pct = round(snap.input_tokens / max_ctx * 100, 1)
 
-                    # Cost estimate
-                    pricing = TOKEN_PRICE.get(snap.model, {"input": 3.0, "output": 15.0})
-                    snap.cost_usd = (
-                        snap.input_tokens / 1_000_000 * pricing["input"]
-                        + snap.output_tokens / 1_000_000 * pricing["output"]
-                    )
+                # Cost estimate
+                pricing = TOKEN_PRICE.get(snap.model, {"input": 3.0, "output": 15.0})
+                snap.cost_usd = (
+                    snap.input_tokens / 1_000_000 * pricing["input"]
+                    + snap.output_tokens / 1_000_000 * pricing["output"]
+                )
 
             total_in += snap.input_tokens
             total_out += snap.output_tokens
