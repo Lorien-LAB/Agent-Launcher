@@ -345,14 +345,21 @@ class TerminalManager:
                 except tk.TclError:
                     pass
 
-        # Animated dot canvases for busy rows
-        for dot_cv, base_c, d, cx, cy, r2 in getattr(self, '_dot_canvases', []):
+        # Animated star dots: scale up/down for busy rows
+        for dot_cv, d, cx, cy in getattr(self, '_dot_canvases', []):
             try:
                 dot_cv.delete("all")
-                col=self._pulse_color(base_c, phase)
-                dot_cv.create_oval(cx-r2+1,cy-r2+1,cx+r2-1,cy+r2-1,fill=col,outline="")
-                gs=self._pulse_color(base_c,phase-0.5)
-                dot_cv.create_oval(cx-r2+2,cy-r2+2,cx+r2-2,cy+r2-2,fill="",outline=gs,width=1)
+                sz=(d//2-1)*(0.85+0.15*math.sin(phase))
+                p=0.38
+                pts=[cx,cy-sz, cx+sz*p,cy-sz*p, cx+sz,cy, cx+sz*p,cy+sz*p,
+                     cx,cy+sz, cx-sz*p,cy+sz*p, cx-sz,cy, cx-sz*p,cy-sz*p]
+                col=self._pulse_color(C.green, phase)
+                dot_cv.create_polygon(pts,fill=col,outline="",smooth=True)
+                gs=self._pulse_color(C.green, phase-0.4)
+                sz2=sz+1
+                pts2=[cx,cy-sz2, cx+sz2*p,cy-sz2*p, cx+sz2,cy, cx+sz2*p,cy+sz2*p,
+                      cx,cy+sz2, cx-sz2*p,cy+sz2*p, cx-sz2,cy, cx-sz2*p,cy-sz2*p]
+                dot_cv.create_polygon(pts2,fill="",outline=gs,width=1,smooth=True)
             except tk.TclError: pass
 
         # Bar animation: fill width oscillates rightward like a breathing wave
@@ -361,8 +368,8 @@ class TerminalManager:
             try:
                 bar.delete("all")
                 bar.create_rectangle(0, 0, bw, bh, fill=C.listbg, outline="")
-                # Oscillate fill width by ±8% with sine, cycling every ~2s
-                wave = 1.0 + 0.08 * math.sin(phase * 1.5)
+                # Oscillate fill width by ±20% with sine, rapid cycle
+                wave = 1.0 + 0.20 * math.sin(phase * 2.5)
                 fw = min(bw, max(3, int(fw_real * wave)))
                 n_seg = 20
                 for i in range(n_seg):
@@ -454,26 +461,26 @@ class TerminalManager:
 
         row = 2
         for se in stats.sessions[:12]:
-            if se.status == "busy": ic,dc="●", self._pulse_color(C.green, phase+row*0.3)
-            elif se.session_id in self._created_sessions: ic,dc="✦",C.yellow
-            else: ic,dc="○", C.subtle
-            # Use Canvas circle for consistent sizing + glow animation
-            d=s(14)
+            # Four-pointed star ✦, Canvas polygon, size varies for busy
+            d=s(16); r=d//2; cx,cy=r,r
             dot=tk.Canvas(body,width=d,height=d,bg=C.base,highlightthickness=0)
-            dot.grid(row=row,column=0,sticky="nw",padx=(s(2),0),pady=(s(2),0))
-            r2=d//2; cx,cy=r2,r2
+            dot.grid(row=row,column=0,sticky="nw",padx=(s(1),0),pady=(s(1),0))
+            def _star_pts(sz):
+                p=0.38  # indent ratio
+                return [cx,cy-sz, cx+sz*p,cy-sz*p, cx+sz,cy, cx+sz*p,cy+sz*p,
+                        cx,cy+sz, cx-sz*p,cy+sz*p, cx-sz,cy, cx-sz*p,cy-sz*p]
             if se.status=="busy":
-                dot.create_oval(cx-r2+1,cy-r2+1,cx+r2-1,cy+r2-1,fill=dc,outline="")
-                # outer glow ring
-                gs=self._pulse_color(C.green,phase+row*0.3-0.5)
-                dot.create_oval(cx-r2+2,cy-r2+2,cx+r2-2,cy+r2-2,fill="",outline=gs,width=1)
-                self._dot_labels.append((None,C.green,row*0.3))  # keep compat
-                self._dot_canvases = getattr(self,'_dot_canvases',[])+[(dot,C.green,d,cx,cy,r2)]
+                sz=r-1
+                col=self._pulse_color(C.green, phase+row*0.3)
+                dot.create_polygon(_star_pts(sz),fill=col,outline="",smooth=True)
+                # glow ring — slightly larger semi-transparent star
+                gcol=self._pulse_color(C.green, phase+row*0.3-0.4)
+                dot.create_polygon(_star_pts(sz+1),fill="",outline=gcol,width=1,smooth=True)
+                self._dot_canvases = getattr(self,'_dot_canvases',[])+[(dot, d, cx, cy)]
             elif se.session_id in self._created_sessions:
-                dot.create_oval(cx-r2+2,cy-r2+2,cx+r2-2,cy+r2-2,fill=dc,outline="")
-                dot.create_text(cx,cy,text="✦",fill=C.base,font=("Segoe UI",9,"bold"))
+                dot.create_polygon(_star_pts(r-2),fill=C.yellow,outline="",smooth=True)
             else:
-                dot.create_oval(cx-r2+3,cy-r2+3,cx+r2-3,cy+r2-3,fill="",outline=dc,width=1)
+                dot.create_polygon(_star_pts(r-3),fill="",outline=C.subtle,width=1,smooth=True)
 
             info=tk.Frame(body,bg=C.base)
             info.grid(row=row,column=1,sticky="ew",padx=(s(4),s(4)))
