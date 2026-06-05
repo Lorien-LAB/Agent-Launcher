@@ -446,8 +446,11 @@ class TerminalManager:
 
             l2=tk.Frame(info,bg=C.base); l2.pack(fill="x")
             pct=se.context_pct
-            bc=C.mauve if pct>80 else (C.yellow if pct>60 else C.blue)
-            bw,bh=s(200),s(3)
+            # Bright bar colors: green < 30% < orange < 60% < red
+            if pct > 60: bc="#FF5555"
+            elif pct > 30: bc="#FFB86C"
+            else: bc="#50FA7B"
+            bw,bh=s(200),s(4)
             bar=tk.Canvas(l2,width=bw,height=bh,bg=C.base,highlightthickness=0)
             bar.create_rectangle(0,0,bw,bh,fill=C.listbg,outline="")
             fw=max(3,int(bw*max(0.005,pct/100)))
