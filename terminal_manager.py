@@ -294,7 +294,7 @@ class TerminalManager:
         # Position: bottom-right of screen
         sw = panel.winfo_screenwidth()
         sh = panel.winfo_screenheight()
-        pw, ph = s(420), s(250)
+        pw, ph = s(420), s(350)
         panel.geometry(f"{pw}x{ph}+{sw - pw - s(10)}+{sh - ph - s(60)}")
 
         # Make draggable
@@ -496,17 +496,18 @@ class TerminalManager:
 
             # Line 2: mini progress bar + ctx% + token count
             l2 = tk.Frame(info, bg=C.base)
-            l2.pack(fill="x", pady=(s(1), 0))
+            l2.pack(fill="x")
 
             pct = sess.context_pct
             bar_color = C.mauve if pct > 80 else (C.yellow if pct > 60 else C.blue)
 
-            bar_w = s(240)
-            bar = tk.Canvas(l2, width=bar_w, height=s(4), bg=C.base, highlightthickness=0)
-            bar.create_rectangle(0, 0, bar_w, s(4), fill=C.surface0, outline="")
+            bar_w = s(200)
+            bar_h = s(3)
+            bar = tk.Canvas(l2, width=bar_w, height=bar_h, bg=C.base, highlightthickness=0)
+            bar.create_rectangle(0, 0, bar_w, bar_h, fill=C.surface0, outline="")
             fill_w = max(2, int(bar_w * pct / 100))
-            bar.create_rectangle(0, 0, fill_w, s(4), fill=bar_color, outline="")
-            bar.pack(side="left", padx=(0, s(6)))
+            bar.create_rectangle(0, 0, fill_w, bar_h, fill=bar_color, outline="")
+            bar.pack(side="left", padx=(0, s(4)))
 
             ctx_str = f"{pct:.1f}%" if pct < 1 else f"{pct:.0f}%"
             tk.Label(l2, text=f"{ctx_str}  {_fmt_tokens(sess.input_tokens)} in",
@@ -523,7 +524,7 @@ class TerminalManager:
 
         # Auto-resize height
         n = max(len(stats.sessions), 1) + 4
-        h = s(26) + s(n * 32)
+        h = s(26) + s(n * 28)
         x = self._stats_panel.winfo_x()
         y = self._stats_panel.winfo_y()
         self._stats_panel.geometry(f"{s(420)}x{h}+{x}+{y}")
