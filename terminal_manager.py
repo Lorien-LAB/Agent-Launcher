@@ -461,9 +461,9 @@ class TerminalManager:
             tk.Label(body,text="No active sessions",bg=C.base,fg=C.subtle,font=("Segoe UI",9)).grid(row=3,column=0,columnspan=2)
         body.grid_columnconfigure(1,weight=1)
 
-        # Resize — measure actual widget height for true auto-fit
-        body.update_idletasks()
-        needed = max(s(60), body.winfo_reqheight() + s(8))
+        # Resize — measure the full panel's required height
+        self._stats_panel.update_idletasks()
+        needed = max(s(80), self._stats_panel.winfo_reqheight() + s(4))
         try: self._stats_panel.geometry(f"{s(420)}x{needed}")
         except tk.TclError: pass
 
