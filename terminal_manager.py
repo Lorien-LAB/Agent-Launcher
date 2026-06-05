@@ -446,15 +446,20 @@ class TerminalManager:
 
             l2=tk.Frame(info,bg=C.base); l2.pack(fill="x")
             pct=se.context_pct
-            # Bright bar colors: green < 30% < orange < 60% < red
-            if pct > 60: bc="#FF5555"
-            elif pct > 30: bc="#FFB86C"
-            else: bc="#50FA7B"
-            bw,bh=s(200),s(4)
+            bw,bh=s(200),s(5)
             bar=tk.Canvas(l2,width=bw,height=bh,bg=C.base,highlightthickness=0)
             bar.create_rectangle(0,0,bw,bh,fill=C.listbg,outline="")
             fw=max(3,int(bw*max(0.005,pct/100)))
-            bar.create_rectangle(0,0,fw,bh,fill=bc,outline="")
+            # HSL gradient: hue 120°(green) → 0°(red) based on percentage
+            import colorsys
+            n_seg=20
+            for i in range(n_seg):
+                t=i/(n_seg-1)*min(pct/100,1.0)
+                hue=(1.0-t)*0.33  # 0.33=green → 0.0=red
+                r,g,b=colorsys.hsv_to_rgb(hue,0.9,0.95)
+                r,g,b=int(r*255),int(g*255),int(b*255)
+                x0=int(fw*i/n_seg); x1=int(fw*(i+1)/n_seg)
+                if x1>x0: bar.create_rectangle(x0,0,x1,bh,fill=f"#{r:02x}{g:02x}{b:02x}",outline="")
             bar.pack(side="left",padx=(0,s(4)))
             cs=f"{pct:.1f}%"
             tk.Label(l2,text=f"{cs}  {_fmt_tokens(se.input_tokens)} in",bg=C.base,fg=C.sub,font=("Consolas",7)).pack(side="left")
