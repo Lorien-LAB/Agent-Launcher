@@ -8,7 +8,6 @@ and provides aggregated stats for tray display.
 import json
 import os
 import re
-import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -175,54 +174,28 @@ _SUMMARY_CACHE: Dict[str, str] = {}  # session_id → summary (persists across s
 
 
 def _generate_summary(tpath: str, session_id: str) -> str:
-    """Pipe the last user messages to `claude --print` for a one-sentence summary.
-    Cached per session_id; only regenerates when cache is empty."""
+    """Extract a short summary from the last user prompt — no API calls."""
     if session_id in _SUMMARY_CACHE:
         return _SUMMARY_CACHE[session_id]
-
-    # Extract last 3 user messages for context
     try:
         with open(tpath, "r", encoding="utf-8-sig") as f:
-            user_msgs = []
+            last_user = ""
             for line in f:
                 line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+                if not line: continue
+                try: obj = json.loads(line)
+                except json.JSONDecodeError: continue
                 if obj.get("type") == "user":
                     content = obj.get("message", {}).get("content", "")
-                    if isinstance(content, str) and len(content) > 20:
-                        user_msgs.append(content[:300])
-            if not user_msgs:
-                return ""
-            context = "\n".join(user_msgs[-3:])
-    except (OSError, IOError):
-        return ""
-
-    prompt = "Summarize this coding session in one short sentence (max 40 words):\n\n" + context
-    try:
-        proc = subprocess.run(
-            ["claude", "--print", "--dangerously-skip-permissions", prompt],
-            input=prompt, capture_output=True, text=True, timeout=30,
-            encoding="utf-8", errors="replace",
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        result = (proc.stdout or "").strip()
-        # Clean up: remove markdown, limit length
-        result = result.strip('"').strip("'").strip()
-        if len(result) > 120:
-            result = result[:117] + "..."
-        if result:
-            _SUMMARY_CACHE[session_id] = result
-            return result
-    except (OSError, FileNotFoundError):
-        pass
-    except Exception:
-        pass
-        pass
+                    if isinstance(content, str) and len(content) > 30:
+                        last_user = content.replace("\n", " ").strip()
+            if last_user:
+                summary = last_user[:120]
+                if len(last_user) > 120:
+                    summary += "..."
+                _SUMMARY_CACHE[session_id] = summary
+                return summary
+    except (OSError, IOError): pass
     return ""
 
 

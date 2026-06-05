@@ -283,6 +283,8 @@ class TerminalManager:
 
     def _create_stats_panel(self):
         """Create a rounded-corner floating panel via Windows region clipping."""
+        if self._stats_panel is not None:
+            return  # Already created
         s = self.s
 
         panel = tk.Toplevel(self.root)
