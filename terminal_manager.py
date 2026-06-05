@@ -334,27 +334,57 @@ class TerminalManager:
         self.root.after(0, lambda: [self._update_tray(stats), self._update_panel(stats)])
 
     def _animate_loop(self):
-        """Only update colors of existing animated labels — no widget destruction."""
-        self._animation_phase = (self._animation_phase + 0.08) % (2 * math.pi)
+        """Animate wave labels, status dots, and bar shimmer — no widget destruction."""
+        self._animation_phase = (self._animation_phase + 0.14) % (2 * math.pi)
         phase = self._animation_phase
 
         for group in getattr(self, '_wave_labels', []):
             for i, (label, base_color, offset) in enumerate(group):
                 try:
-                    color = self._pulse_color(base_color, phase - i * offset)
-                    label.config(fg=color)
+                    label.config(fg=self._pulse_color(base_color, phase - i * offset))
                 except tk.TclError:
                     pass
 
-        # Also pulse status dots for busy rows
-        for dot_label, base_color, offset in getattr(self, '_dot_labels', []):
+        # Animated dot canvases for busy rows
+        for dot_cv, base_c, d, cx, cy, r2 in getattr(self, '_dot_canvases', []):
             try:
-                color = self._pulse_color(base_color, phase - offset)
-                dot_label.config(fg=color)
+                dot_cv.delete("all")
+                col=self._pulse_color(base_c, phase)
+                dot_cv.create_oval(cx-r2+1,cy-r2+1,cx+r2-1,cy+r2-1,fill=col,outline="")
+                gs=self._pulse_color(base_c,phase-0.5)
+                dot_cv.create_oval(cx-r2+2,cy-r2+2,cx+r2-2,cy+r2-2,fill="",outline=gs,width=1)
+            except tk.TclError: pass
+
+        # Bar animation: fill width oscillates rightward like a breathing wave
+        import colorsys, math
+        for bar, bw, fw_real, bh, pct in getattr(self, '_wave_bars', []):
+            try:
+                bar.delete("all")
+                bar.create_rectangle(0, 0, bw, bh, fill=C.listbg, outline="")
+                # Oscillate fill width by ±8% with sine, cycling every ~2s
+                wave = 1.0 + 0.08 * math.sin(phase * 1.5)
+                fw = min(bw, max(3, int(fw_real * wave)))
+                n_seg = 20
+                for i in range(n_seg):
+                    t_val = i / (n_seg - 1) * min(pct / 100, 1.0)
+                    hue = (1.0 - t_val) * 0.33
+                    r, g, b = colorsys.hsv_to_rgb(hue, 0.9, 0.95)
+                    r, g, b = int(r * 255), int(g * 255), int(b * 255)
+                    x0 = int(fw * i / n_seg); x1 = int(fw * (i + 1) / n_seg)
+                    if x1 > x0:
+                        bar.create_rectangle(x0, 0, x1, bh, fill=f"#{r:02x}{g:02x}{b:02x}", outline="")
+                # Bright leading edge glow
+                glow_w = s(3)
+                for gx in range(fw - glow_w, fw):
+                    if 0 <= gx < fw:
+                        a = int(200 * (1 - (fw - gx) / glow_w))
+                        bar.create_rectangle(gx, 0, gx + 1, bh,
+                                             fill=f"#{min(255,a+55):02x}{min(255,a+55):02x}{min(255,a+55):02x}",
+                                             outline="")
             except tk.TclError:
                 pass
 
-        self.root.after(120, self._animate_loop)
+        self.root.after(100, self._animate_loop)
 
     @staticmethod
     def _pulse_color(base_hex, phase):
@@ -396,7 +426,7 @@ class TerminalManager:
 
         # Full rebuild
         for w in body.winfo_children(): w.destroy()
-        self._wave_labels = []; self._dot_labels = []
+        self._wave_labels = []; self._dot_labels = []; self._wave_bars = []; self._dot_canvases = []
         phase = self._animation_phase
 
         # Header
@@ -407,6 +437,7 @@ class TerminalManager:
         self._hdr_label.grid(row=0,column=0,columnspan=2,sticky="w",pady=(s(2),s(4)))
         tk.Frame(body, height=1, bg=C.border).grid(row=1,column=0,columnspan=2,sticky="ew",pady=s(2))
         self._bar_texts = []
+        self._wave_bars = []
 
         # Transitions
         cur = {se.session_id: se.status for se in stats.sessions}
@@ -426,9 +457,23 @@ class TerminalManager:
             if se.status == "busy": ic,dc="●", self._pulse_color(C.green, phase+row*0.3)
             elif se.session_id in self._created_sessions: ic,dc="✦",C.yellow
             else: ic,dc="○", C.subtle
-            dl=tk.Label(body,text=ic,bg=C.base,fg=dc,font=("Segoe UI",10,"bold"))
-            dl.grid(row=row,column=0,sticky="nw")
-            if se.status=="busy": self._dot_labels.append((dl,C.green,row*0.3))
+            # Use Canvas circle for consistent sizing + glow animation
+            d=s(14)
+            dot=tk.Canvas(body,width=d,height=d,bg=C.base,highlightthickness=0)
+            dot.grid(row=row,column=0,sticky="nw",padx=(s(2),0),pady=(s(2),0))
+            r2=d//2; cx,cy=r2,r2
+            if se.status=="busy":
+                dot.create_oval(cx-r2+1,cy-r2+1,cx+r2-1,cy+r2-1,fill=dc,outline="")
+                # outer glow ring
+                gs=self._pulse_color(C.green,phase+row*0.3-0.5)
+                dot.create_oval(cx-r2+2,cy-r2+2,cx+r2-2,cy+r2-2,fill="",outline=gs,width=1)
+                self._dot_labels.append((None,C.green,row*0.3))  # keep compat
+                self._dot_canvases = getattr(self,'_dot_canvases',[])+[(dot,C.green,d,cx,cy,r2)]
+            elif se.session_id in self._created_sessions:
+                dot.create_oval(cx-r2+2,cy-r2+2,cx+r2-2,cy+r2-2,fill=dc,outline="")
+                dot.create_text(cx,cy,text="✦",fill=C.base,font=("Segoe UI",9,"bold"))
+            else:
+                dot.create_oval(cx-r2+3,cy-r2+3,cx+r2-3,cy+r2-3,fill="",outline=dc,width=1)
 
             info=tk.Frame(body,bg=C.base)
             info.grid(row=row,column=1,sticky="ew",padx=(s(4),s(4)))
@@ -442,27 +487,27 @@ class TerminalManager:
                     lb.pack(side="left"); gr.append((lb,C.text,0.35))
                 self._wave_labels.append(gr)
             else:
-                tk.Label(l1,text=se.short_dir,bg=C.base,fg=C.text,font=("Consolas",9)).pack(side="left")
+                tk.Label(l1,text=se.short_dir,bg=C.base,fg=C.text,font=("Consolas",10,"bold")).pack(side="left")
 
             if se.model and se.model!="?":
                 ms=se.model.replace("deepseek-v4-pro","DSv4").replace("claude-","")
-                tk.Label(l1,text=f" [{ms}]",bg=C.base,fg=C.subtle,font=("Consolas",7)).pack(side="left",padx=(s(4),0))
+                tk.Label(l1,text=f" [{ms}]",bg=C.base,fg=C.subtle,font=("Consolas",8)).pack(side="left",padx=(s(4),0))
             if se.git_branch:
-                tk.Label(l1,text=f" {se.git_branch}",bg=C.base,fg=C.subtle,font=("Consolas",7)).pack(side="left",padx=(s(2),0))
+                tk.Label(l1,text=f" {se.git_branch}",bg=C.base,fg=C.subtle,font=("Consolas",8)).pack(side="left",padx=(s(2),0))
             if se.subagent_count>0:
-                tk.Label(l1,text=f" [{se.subagent_count}]",bg=C.base,fg=C.mauve,font=("Consolas",7)).pack(side="left",padx=(s(2),0))
+                tk.Label(l1,text=f" [{se.subagent_count}]",bg=C.base,fg=C.mauve,font=("Consolas",8)).pack(side="left",padx=(s(2),0))
 
             if se.status=="busy":
                 tk.Label(l1,text="  ",bg=C.base).pack(side="left")
                 for ci,ch in enumerate("RUNNING"):
                     co=self._pulse_color(C.green,phase-ci*0.4)
-                    lb=tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",8,"bold"))
+                    lb=tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",9,"bold"))
                     lb.pack(side="left"); gr.append((lb,C.green,0.4))
             elif se.session_id in self._created_sessions:
                 tk.Label(l1,text="  ",bg=C.base).pack(side="left")
                 for ci,ch in enumerate("DONE"):
                     co=self._pulse_color(C.yellow,phase-ci*0.35)
-                    tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",8,"bold")).pack(side="left")
+                    tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",9,"bold")).pack(side="left")
 
             l2=tk.Frame(info,bg=C.base); l2.pack(fill="x")
             pct=se.context_pct
@@ -474,15 +519,18 @@ class TerminalManager:
             import colorsys
             n_seg=20
             for i in range(n_seg):
-                t=i/(n_seg-1)*min(pct/100,1.0)
-                hue=(1.0-t)*0.33  # 0.33=green → 0.0=red
+                t_val=i/(n_seg-1)*min(pct/100,1.0)
+                hue=(1.0-t_val)*0.33
                 r,g,b=colorsys.hsv_to_rgb(hue,0.9,0.95)
                 r,g,b=int(r*255),int(g*255),int(b*255)
                 x0=int(fw*i/n_seg); x1=int(fw*(i+1)/n_seg)
                 if x1>x0: bar.create_rectangle(x0,0,x1,bh,fill=f"#{r:02x}{g:02x}{b:02x}",outline="")
             bar.pack(side="left",padx=(0,s(4)))
+            # Track bar for wave animation
+            if se.status == "busy":
+                self._wave_bars.append((bar, bw, fw, bh, pct))
             cs=f"{pct:.1f}%"
-            bt = tk.Label(l2,text=f"{cs}  {_fmt_tokens(se.input_tokens)} in",bg=C.base,fg=C.sub,font=("Consolas",7))
+            bt = tk.Label(l2,text=f"{cs}  {_fmt_tokens(se.input_tokens)} in",bg=C.base,fg=C.sub,font=("Consolas",8))
             bt.pack(side="left")
             self._bar_texts.append(bt)
             row+=1
