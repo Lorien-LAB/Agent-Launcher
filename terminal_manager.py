@@ -552,9 +552,6 @@ class TerminalManager:
             bt = tk.Label(l2,text=f"{cs}",bg=C.base,fg=C.sub,font=("Consolas",9))
             bt.pack(side="left")
             self._bar_texts.append(bt)
-            if se.summary:
-                tk.Label(info,text=se.summary,bg=C.base,fg=C.subtle,
-                         font=("Segoe UI",7,"italic"),wraplength=s(380),anchor="w",justify="left").pack(fill="x",pady=(s(1),0))
             row+=1
 
         if not stats.sessions:

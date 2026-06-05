@@ -170,34 +170,6 @@ def _count_subagents(cwd: str, session_id: str) -> int:
         return 0
 
 
-_SUMMARY_CACHE: Dict[str, str] = {}  # session_id → summary (persists across scans)
-
-
-def _generate_summary(tpath: str, session_id: str) -> str:
-    """Extract a short summary from the last user prompt — no API calls."""
-    if session_id in _SUMMARY_CACHE:
-        return _SUMMARY_CACHE[session_id]
-    try:
-        with open(tpath, "r", encoding="utf-8-sig") as f:
-            last_user = ""
-            for line in f:
-                line = line.strip()
-                if not line: continue
-                try: obj = json.loads(line)
-                except json.JSONDecodeError: continue
-                if obj.get("type") == "user":
-                    content = obj.get("message", {}).get("content", "")
-                    if isinstance(content, str) and len(content) > 30:
-                        last_user = content.replace("\n", " ").strip()
-            if last_user:
-                summary = last_user[:120]
-                if len(last_user) > 120:
-                    summary += "..."
-                _SUMMARY_CACHE[session_id] = summary
-                return summary
-    except (OSError, IOError): pass
-    return ""
-
 
 def _fmt_tokens(n: int) -> str:
     """Format token count for display."""
@@ -230,7 +202,6 @@ class SessionSnapshot:
     short_dir: str = ""
     git_branch: str = ""
     subagent_count: int = 0
-    summary: str = ""
 
     @property
     def total_tokens(self) -> int:
@@ -338,11 +309,6 @@ class SessionMonitor:
                 # Context % based on peak context tokens vs model max
                 max_ctx = MODEL_CONTEXT.get(snap.model, 200_000)
                 snap.context_pct = round(snap.input_tokens / max_ctx * 100, 1)
-
-                # AI summary — cached, generated async once per session
-                snap.summary = _SUMMARY_CACHE.get(sid, "")
-                if status == "idle" and not snap.summary:
-                    threading.Thread(target=_generate_summary, args=(tpath, sid), daemon=True).start()
 
                 # Cost estimate
                 pricing = TOKEN_PRICE.get(snap.model, {"input": 3.0, "output": 15.0})
