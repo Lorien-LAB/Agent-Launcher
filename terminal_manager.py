@@ -472,7 +472,7 @@ class TerminalManager:
             elif se.session_id in self._created_sessions:
                 dot.create_polygon(_star_pts(r-2),fill=C.yellow,outline="",smooth=True)
             else:
-                dot.create_polygon(_star_pts(r-3),fill="",outline=C.subtle,width=1,smooth=True)
+                dot.create_polygon(_star_pts(r-6),fill="",outline=C.subtle,width=1,smooth=True)
 
             info=tk.Frame(body,bg=C.base)
             info.grid(row=row,column=1,sticky="ew",padx=(s(4),s(4)))
@@ -482,31 +482,31 @@ class TerminalManager:
                 gr=[]
                 for ci,ch in enumerate(se.short_dir):
                     co=self._pulse_color(C.text,phase-ci*0.35)
-                    lb=tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",9,"bold"))
+                    lb=tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",10,"bold"))
                     lb.pack(side="left"); gr.append((lb,C.text,0.35))
                 self._wave_labels.append(gr)
             else:
-                tk.Label(l1,text=se.short_dir,bg=C.base,fg=C.text,font=("Consolas",10,"bold")).pack(side="left")
+                tk.Label(l1,text=se.short_dir,bg=C.base,fg=C.text,font=("Consolas",11,"bold")).pack(side="left")
 
             if se.model and se.model!="?":
                 ms=se.model.replace("deepseek-v4-pro","DSv4").replace("claude-","")
-                tk.Label(l1,text=f" [{ms}]",bg=C.base,fg=C.subtle,font=("Consolas",8)).pack(side="left",padx=(s(4),0))
+                tk.Label(l1,text=f" [{ms}]",bg=C.base,fg=C.subtle,font=("Consolas",9)).pack(side="left",padx=(s(4),0))
             if se.git_branch:
-                tk.Label(l1,text=f" {se.git_branch}",bg=C.base,fg=C.subtle,font=("Consolas",8)).pack(side="left",padx=(s(2),0))
+                tk.Label(l1,text=f" {se.git_branch}",bg=C.base,fg=C.subtle,font=("Consolas",9)).pack(side="left",padx=(s(2),0))
             if se.subagent_count>0:
-                tk.Label(l1,text=f" [{se.subagent_count}]",bg=C.base,fg=C.mauve,font=("Consolas",8)).pack(side="left",padx=(s(2),0))
+                tk.Label(l1,text=f" [{se.subagent_count}]",bg=C.base,fg=C.mauve,font=("Consolas",9)).pack(side="left",padx=(s(2),0))
 
             if se.status=="busy":
                 tk.Label(l1,text="  ",bg=C.base).pack(side="left")
                 for ci,ch in enumerate("RUNNING"):
                     co=self._pulse_color(C.green,phase-ci*0.4)
-                    lb=tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",9,"bold"))
+                    lb=tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",10,"bold"))
                     lb.pack(side="left"); gr.append((lb,C.green,0.4))
             elif se.session_id in self._created_sessions:
                 tk.Label(l1,text="  ",bg=C.base).pack(side="left")
                 for ci,ch in enumerate("DONE"):
                     co=self._pulse_color(C.yellow,phase-ci*0.35)
-                    tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",9,"bold")).pack(side="left")
+                    tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",10,"bold")).pack(side="left")
 
             l2=tk.Frame(info,bg=C.base); l2.pack(fill="x")
             pct=se.context_pct
@@ -529,7 +529,7 @@ class TerminalManager:
             if se.status == "busy":
                 self._wave_bars.append((bar, bw, fw, bh, pct))
             cs=f"{pct:.1f}%"
-            bt = tk.Label(l2,text=f"{cs}",bg=C.base,fg=C.sub,font=("Consolas",8))
+            bt = tk.Label(l2,text=f"{cs}",bg=C.base,fg=C.sub,font=("Consolas",9))
             bt.pack(side="left")
             self._bar_texts.append(bt)
             row+=1
