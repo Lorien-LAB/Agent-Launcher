@@ -89,9 +89,11 @@ def _read_tail_assistant(path: str, seek_back: int) -> Optional[dict]:
         return None
 
 
-def _read_max_input_tokens(path: str) -> int:
-    """Scan the full transcript, return the maximum input_tokens seen.
-    This represents the peak context window depth (last turn per model convention)."""
+def _read_max_context_tokens(path: str) -> int:
+    """Scan full transcript, return peak context tokens (abtop algorithm).
+    Context tokens = input_tokens + cache_read_input_tokens
+    (or input_tokens + cache_creation_input_tokens if cache_read=0).
+    This accounts for prompt caching — cached tokens still occupy context."""
     max_val = 0
     try:
         with open(path, "r", encoding="utf-8-sig") as f:
@@ -103,14 +105,29 @@ def _read_max_input_tokens(path: str) -> int:
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if obj.get("type") == "assistant":
-                    u = obj.get("message", {}).get("usage", {})
-                    inv = u.get("input_tokens", 0)
-                    if inv > max_val:
-                        max_val = inv
+                if obj.get("type") != "assistant":
+                    continue
+                u = obj.get("message", {}).get("usage", {})
+                inp = u.get("input_tokens", 0) or 0
+                cr = u.get("cache_read_input_tokens", 0) or 0
+                cc = u.get("cache_creation_input_tokens", 0) or 0
+                # abtop algorithm: cache_read=0 + cache_creation>0 → fresh session
+                ctx = inp + (cc if (cr == 0 and cc > 0) else cr)
+                if ctx > max_val:
+                    max_val = ctx
         return max_val
     except (OSError, IOError):
         return 0
+
+
+def _read_last_model_and_output(path: str) -> tuple:
+    """Read last assistant line (64KB tail) for model name and output tokens."""
+    last = _read_tail_assistant(path, seek_back=65536)
+    if last:
+        m = last.get("message", {}).get("model", "?")
+        u = last.get("message", {}).get("usage", {})
+        return m, u.get("output_tokens", 0) or 0
+    return "?", 0
 
 
 def _read_git_branch(path: str) -> str:
@@ -275,23 +292,20 @@ class SessionMonitor:
                 snap.git_branch = _read_git_branch(tpath).replace("HEAD", "")
                 snap.subagent_count = _count_subagents(cwd, sid)
 
-                # Model info from last assistant line (tail 64KB)
-                last = _read_last_assistant_line(tpath)
-                if last:
-                    snap.model = last.get("message", {}).get("model", "?")
-                    snap.output_tokens = last.get("message", {}).get("usage", {}).get("output_tokens", 0)
+                # Model + output from last turn (64KB tail read)
+                snap.model, snap.output_tokens = _read_last_model_and_output(tpath)
 
-                # Context = peak input_tokens across all turns
-                peak_input = _read_max_input_tokens(tpath)
+                # Context = peak (input + cache_read) across all turns (abtop algorithm)
+                peak_ctx = _read_max_context_tokens(tpath)
                 if sid not in self._session_totals:
                     self._session_totals[sid] = {"in": 0, "out": 0}
                 prev = self._session_totals[sid]
-                prev["in"] = max(prev["in"], peak_input)
+                prev["in"] = max(prev["in"], peak_ctx)
                 prev["out"] = max(prev["out"], snap.output_tokens)
                 snap.input_tokens = prev["in"]
                 snap.output_tokens = prev["out"]
 
-                # Context % based on peak input vs model max
+                # Context % based on peak context tokens vs model max
                 max_ctx = MODEL_CONTEXT.get(snap.model, 200_000)
                 snap.context_pct = round(snap.input_tokens / max_ctx * 100, 1)
 

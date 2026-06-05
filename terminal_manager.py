@@ -375,8 +375,26 @@ class TerminalManager:
             if not self._stats_panel: return
             self._stats_panel.winfo_exists()
         except tk.TclError: return
-        s = self.s
-        body = self._panel_body
+        # Anti-flicker: only fully rebuild when session list changes
+        id_key = tuple((s.session_id, s.status) for s in stats.sessions)
+        same = getattr(self, '_last_id_key', None) == id_key
+        self._last_id_key = id_key
+
+        s = self.s; body = self._panel_body
+
+        # Patch-only mode: update text in existing labels, skip full rebuild
+        if same and hasattr(self, '_hdr_label'):
+            try: self._hdr_label.config(
+                text=f"{_fmt_tokens(stats.total_input)} in  {_fmt_tokens(stats.total_output)} out")
+            except tk.TclError: pass
+            for i, se in enumerate(stats.sessions):
+                if i < len(getattr(self, '_bar_texts', [])):
+                    try: self._bar_texts[i].config(
+                        text=f"{se.context_pct:.1f}%  {_fmt_tokens(se.input_tokens)} in")
+                    except tk.TclError: pass
+            return
+
+        # Full rebuild
         for w in body.winfo_children(): w.destroy()
         self._wave_labels = []; self._dot_labels = []
         phase = self._animation_phase
@@ -385,8 +403,10 @@ class TerminalManager:
         t = f"{_fmt_tokens(stats.total_input)} in  {_fmt_tokens(stats.total_output)} out"
         c = _fmt_cost(stats.total_cost) if stats.total_cost > 0.001 else ""
         if c: t += f"       {c}"
-        tk.Label(body, text=t, bg=C.base, fg=C.text, font=("Consolas",10)).grid(row=0,column=0,columnspan=2,sticky="w",pady=(s(2),s(4)))
+        self._hdr_label = tk.Label(body, text=t, bg=C.base, fg=C.text, font=("Consolas",10))
+        self._hdr_label.grid(row=0,column=0,columnspan=2,sticky="w",pady=(s(2),s(4)))
         tk.Frame(body, height=1, bg=C.border).grid(row=1,column=0,columnspan=2,sticky="ew",pady=s(2))
+        self._bar_texts = []
 
         # Transitions
         cur = {se.session_id: se.status for se in stats.sessions}
@@ -462,7 +482,9 @@ class TerminalManager:
                 if x1>x0: bar.create_rectangle(x0,0,x1,bh,fill=f"#{r:02x}{g:02x}{b:02x}",outline="")
             bar.pack(side="left",padx=(0,s(4)))
             cs=f"{pct:.1f}%"
-            tk.Label(l2,text=f"{cs}  {_fmt_tokens(se.input_tokens)} in",bg=C.base,fg=C.sub,font=("Consolas",7)).pack(side="left")
+            bt = tk.Label(l2,text=f"{cs}  {_fmt_tokens(se.input_tokens)} in",bg=C.base,fg=C.sub,font=("Consolas",7))
+            bt.pack(side="left")
+            self._bar_texts.append(bt)
             row+=1
 
         if not stats.sessions:
