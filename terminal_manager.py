@@ -371,7 +371,6 @@ class TerminalManager:
         return f"#{r:02x}{g:02x}{b:02x}"
 
     def _update_panel(self, stats):
-        """Rebuild panel only when session list changes."""
         if not self._stats_panel or not self._stats_panel.winfo_exists():
             return
         s = self.s
@@ -462,7 +461,7 @@ class TerminalManager:
             # Meta badges: model, git, subagents
             if sess.model and sess.model != "?":
                 m = sess.model.replace("deepseek-v4-pro", "DSv4").replace("claude-", "")
-                tk.Label(l1, text=f" [{m}]", bg=C.base, fg=C.surface2,
+                tk.Label(l1, text=f" [{m}]", bg=C.base, fg=C.subtle,
                          font=("Consolas", 7)).pack(side="left", padx=(s(4), 0))
             if sess.git_branch:
                 tk.Label(l1, text=f" 🔀{sess.git_branch}", bg=C.base, fg=C.subtle,
