@@ -282,41 +282,76 @@ class TerminalManager:
         self.root.after(200, self._animate_loop)
 
     def _create_stats_panel(self):
-        """Create a persistent floating stats panel near the taskbar."""
+        """Create a rounded-corner floating panel via Canvas overlay."""
         s = self.s
+        MAGENTA = "#FF00FF"  # transparent key color
+        self._panel_transp = MAGENTA
+
         panel = tk.Toplevel(self.root)
         panel.title("Session Monitor")
-        panel.configure(bg=C.base)
-        panel.overrideredirect(True)  # borderless
-        panel.attributes("-topmost", True)  # always on top
+        panel.overrideredirect(True)
+        panel.attributes("-topmost", True)
         panel.attributes("-alpha", 0.92)
+        try:
+            panel.attributes("-transparentcolor", self._panel_transp)
+        except Exception:
+            pass
+        panel.configure(bg=self._panel_transp)
 
-        # Position: bottom-right of screen
+        pw, ph = s(420), s(350)
         sw = panel.winfo_screenwidth()
         sh = panel.winfo_screenheight()
-        pw, ph = s(420), s(350)
         panel.geometry(f"{pw}x{ph}+{sw - pw - s(10)}+{sh - ph - s(60)}")
 
-        # Make draggable
-        self._drag_x, self._drag_y = 0, 0
-        panel.bind("<Button-1>", self._panel_drag_start)
-        panel.bind("<B1-Motion>", self._panel_drag_move)
+        # Canvas as background — draws the rounded rectangle + handles drag
+        self._panel_canvas = tk.Canvas(panel, bg=self._panel_transp,
+                                       highlightthickness=0, bd=0)
+        self._panel_canvas.pack(fill="both", expand=True)
+        self._panel_canvas.bind("<Button-1>", self._panel_drag_start)
+        self._panel_canvas.bind("<B1-Motion>", self._panel_drag_move)
 
+        def _draw_bg(event=None):
+            cw = self._panel_canvas.winfo_width()
+            ch = self._panel_canvas.winfo_height()
+            if cw < 8 or ch < 8:
+                return
+            self._panel_canvas.delete("bg")
+            # Solid rounded base
+            _round_rect(self._panel_canvas, 0, 0, cw, ch, s(18),
+                        fill=C.base, outline=C.border, tags="bg")
+            # Top strip (header color)
+            _round_rect(self._panel_canvas, 0, 0, cw, s(26), s(18),
+                        fill="#2E1A47", outline="", tags="bg")
+            # Purple separator at header bottom
+            self._panel_canvas.create_rectangle(0, s(25), cw, s(26),
+                                                fill=C.mauve, outline="", tags="bg")
+
+        self._panel_canvas.bind("<Configure>", _draw_bg)
+
+        # Place widgets ON the Canvas as window items
         # Header
-        hdr = tk.Frame(panel, bg="#2E1A47", height=s(26))
-        hdr.pack(fill="x")
+        hdr = tk.Frame(self._panel_canvas, bg="#2E1A47", height=s(26))
         hdr.pack_propagate(False)
-        tk.Frame(hdr, height=s(1), bg=C.mauve).pack(side="bottom", fill="x")
-        self._panel_title = tk.Label(
-            hdr, text="📊  Session Monitor",
-            bg="#2E1A47", fg=C.text, font=("Segoe UI", 10, "bold"))
-        self._panel_title.pack(pady=(s(3), 0))
+        hdr_id = self._panel_canvas.create_window(s(0), s(0), anchor="nw", window=hdr,
+                                                   width=pw, tags="widget")
+        tk.Label(hdr, text="📊  Session Monitor", bg="#2E1A47", fg=C.text,
+                 font=("Segoe UI", 10, "bold")).pack(pady=(s(3), 0))
 
-        # Body — scrollable frame
-        body = tk.Frame(panel, bg=C.base)
-        body.pack(fill="both", expand=True, padx=s(4), pady=s(4))
+        # Body
+        body = tk.Frame(self._panel_canvas, bg=C.base)
+        body_id = self._panel_canvas.create_window(s(2), s(26), anchor="nw", window=body,
+                                                    width=pw - s(4), tags="widget")
+
+        def _recenter_widgets(event=None):
+            cw = self._panel_canvas.winfo_width()
+            self._panel_canvas.coords(hdr_id, s(1), s(0))
+            self._panel_canvas.itemconfig(hdr_id, width=cw - s(2))
+            self._panel_canvas.coords(body_id, s(2), s(26))
+            self._panel_canvas.itemconfig(body_id, width=cw - s(4))
+
+        self._panel_canvas.bind("<Configure>", lambda e: [_draw_bg(e), _recenter_widgets(e)], add="+")
+
         self._panel_body = body
-
         self._stats_panel = panel
 
     def _panel_drag_start(self, event):
@@ -349,7 +384,7 @@ class TerminalManager:
         for dot_cv, d, cx, cy in getattr(self, '_dot_canvases', []):
             try:
                 dot_cv.delete("all")
-                sz=(d//2-1)*(0.85+0.15*math.sin(phase))
+                sz=(d//2-3)*(0.85+0.15*math.sin(phase))
                 p=0.38
                 pts=[cx,cy-sz, cx+sz*p,cy-sz*p, cx+sz,cy, cx+sz*p,cy+sz*p,
                      cx,cy+sz, cx-sz*p,cy+sz*p, cx-sz,cy, cx-sz*p,cy-sz*p]
@@ -369,8 +404,8 @@ class TerminalManager:
                 bar.delete("all")
                 # Background
                 bar.create_rectangle(0, 0, bw, bh, fill=C.listbg, outline="")
-                # Fill sweeps 0→fw_base→0 cyclically (sawtooth)
-                t = abs((phase * 0.6) % 2 - 1)
+                # Sawtooth: instant drop to 0, then ramp rightward slowly
+                t = (phase * 0.5) % 1
                 fw = max(3, int(fw_base * t))
                 n_seg = 20
                 for i in range(n_seg):
@@ -416,7 +451,7 @@ class TerminalManager:
             for i, se in enumerate(stats.sessions):
                 if i < len(self._bar_texts):
                     try: self._bar_texts[i].config(
-                        text=f"{se.context_pct:.1f}%  {_fmt_tokens(se.input_tokens)} in")
+                        text=f"{se.context_pct:.1f}%")
                     except tk.TclError: pass
             return
 
@@ -521,7 +556,7 @@ class TerminalManager:
             if se.status == "busy":
                 self._wave_bars.append((bar, bw, fw, bh, pct))
             cs=f"{pct:.1f}%"
-            bt = tk.Label(l2,text=f"{cs}  {_fmt_tokens(se.input_tokens)} in",bg=C.base,fg=C.sub,font=("Consolas",8))
+            bt = tk.Label(l2,text=f"{cs}",bg=C.base,fg=C.sub,font=("Consolas",8))
             bt.pack(side="left")
             self._bar_texts.append(bt)
             row+=1
