@@ -8,6 +8,7 @@ and provides aggregated stats for tray display.
 import json
 import os
 import re
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -170,6 +171,61 @@ def _count_subagents(cwd: str, session_id: str) -> int:
         return 0
 
 
+_SUMMARY_CACHE: Dict[str, str] = {}  # session_id → summary (persists across scans)
+
+
+def _generate_summary(tpath: str, session_id: str) -> str:
+    """Pipe the last user messages to `claude --print` for a one-sentence summary.
+    Cached per session_id; only regenerates when cache is empty."""
+    if session_id in _SUMMARY_CACHE:
+        return _SUMMARY_CACHE[session_id]
+
+    # Extract last 3 user messages for context
+    try:
+        with open(tpath, "r", encoding="utf-8-sig") as f:
+            user_msgs = []
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("type") == "user":
+                    content = obj.get("message", {}).get("content", "")
+                    if isinstance(content, str) and len(content) > 20:
+                        user_msgs.append(content[:300])
+            if not user_msgs:
+                return ""
+            context = "\n".join(user_msgs[-3:])
+    except (OSError, IOError):
+        return ""
+
+    prompt = "Summarize this coding session in one short sentence (max 40 words):\n\n" + context
+    try:
+        proc = subprocess.run(
+            ["claude", "--print", "--dangerously-skip-permissions", prompt],
+            input=prompt, capture_output=True, text=True, timeout=30,
+            encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        result = (proc.stdout or "").strip()
+        # Clean up: remove markdown, limit length
+        result = result.strip('"').strip("'").strip()
+        if len(result) > 120:
+            result = result[:117] + "..."
+        if result:
+            _SUMMARY_CACHE[session_id] = result
+            return result
+    except (OSError, FileNotFoundError):
+        pass
+    except Exception:
+        pass
+        pass
+    return ""
+
+
 def _fmt_tokens(n: int) -> str:
     """Format token count for display."""
     if n >= 1_000_000:
@@ -201,6 +257,7 @@ class SessionSnapshot:
     short_dir: str = ""
     git_branch: str = ""
     subagent_count: int = 0
+    summary: str = ""
 
     @property
     def total_tokens(self) -> int:
@@ -308,6 +365,11 @@ class SessionMonitor:
                 # Context % based on peak context tokens vs model max
                 max_ctx = MODEL_CONTEXT.get(snap.model, 200_000)
                 snap.context_pct = round(snap.input_tokens / max_ctx * 100, 1)
+
+                # AI summary — cached, generated async once per session
+                snap.summary = _SUMMARY_CACHE.get(sid, "")
+                if status == "idle" and not snap.summary:
+                    threading.Thread(target=_generate_summary, args=(tpath, sid), daemon=True).start()
 
                 # Cost estimate
                 pricing = TOKEN_PRICE.get(snap.model, {"input": 3.0, "output": 15.0})
