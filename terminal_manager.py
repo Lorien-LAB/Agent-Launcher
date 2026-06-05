@@ -14,6 +14,8 @@ from tkinter import ttk
 import pystray
 from PIL import Image
 
+from session_monitor import SessionMonitor, _fmt_tokens, _fmt_cost
+
 # Enable DPI awareness
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -263,8 +265,31 @@ class TerminalManager:
         # ── System Tray ──
         self._tray = None
         self._tray_icon = None
+        self._monitor = SessionMonitor()
+        self._monitor.on_update(self._on_stats_update)
+        self._monitor.scan()  # initial scan
+        self._monitor.start()
+        self._stats_panel = None  # popup panel
         self.root.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
         self.root.after(100, self._create_tray)
+
+    def _on_stats_update(self, stats):
+        """Called by monitor thread → schedule UI update in main thread."""
+        self.root.after(0, lambda: self._update_tray(stats))
+
+    def _update_tray(self, stats):
+        """Refresh tray tooltip with live stats."""
+        if not self._tray_icon:
+            return
+        tip = f"Lorien_Lab"
+        tip += f"\n{stats.active_count} active · {stats.idle_count} idle"
+        tip += f"\n{_fmt_tokens(stats.total_input)} in · {_fmt_tokens(stats.total_output)} out"
+        if stats.total_cost > 0.001:
+            tip += f" · {_fmt_cost(stats.total_cost)}"
+        for s in stats.sessions[:6]:
+            icon = "●" if s.status == "busy" else "○"
+            tip += f"\n{icon} {s.short_dir:<28} {_fmt_tokens(s.input_tokens):>6} in"
+        self._tray_icon.title = tip[:127]  # Windows limit
 
     def _create_tray(self):
         """Create system tray icon (runs after window is ready)."""
