@@ -362,34 +362,22 @@ class TerminalManager:
                 dot_cv.create_polygon(pts2,fill="",outline=gs,width=1,smooth=True)
             except tk.TclError: pass
 
-        # Bar animation: fill width oscillates rightward like a breathing wave
-        import colorsys, math
-        for bar, bw, fw_real, bh, pct in getattr(self, '_wave_bars', []):
+        # Bar animation: moving shimmer band over the gradient (no full redraw)
+        for bar, bw, fw_base, bh, pct in getattr(self, '_wave_bars', []):
             try:
-                bar.delete("all")
-                bar.create_rectangle(0, 0, bw, bh, fill=C.listbg, outline="")
-                # Oscillate fill width by ±20% with sine, rapid cycle
-                wave = 1.0 + 0.20 * math.sin(phase * 2.5)
-                fw = min(bw, max(3, int(fw_real * wave)))
-                n_seg = 20
-                for i in range(n_seg):
-                    t_val = i / (n_seg - 1) * min(pct / 100, 1.0)
-                    hue = (1.0 - t_val) * 0.33
-                    r, g, b = colorsys.hsv_to_rgb(hue, 0.9, 0.95)
-                    r, g, b = int(r * 255), int(g * 255), int(b * 255)
-                    x0 = int(fw * i / n_seg); x1 = int(fw * (i + 1) / n_seg)
-                    if x1 > x0:
-                        bar.create_rectangle(x0, 0, x1, bh, fill=f"#{r:02x}{g:02x}{b:02x}", outline="")
-                # Bright leading edge glow
-                glow_w = s(3)
-                for gx in range(fw - glow_w, fw):
-                    if 0 <= gx < fw:
-                        a = int(200 * (1 - (fw - gx) / glow_w))
-                        bar.create_rectangle(gx, 0, gx + 1, bh,
-                                             fill=f"#{min(255,a+55):02x}{min(255,a+55):02x}{min(255,a+55):02x}",
-                                             outline="")
-            except tk.TclError:
-                pass
+                bar.delete("wave")
+                # Oscillate fill width slightly
+                fw = min(bw, max(3, int(fw_base * (1.0 + 0.15 * math.sin(phase * 2.5)))))
+                # Bright band at leading edge
+                wb = 8
+                for dx in range(wb):
+                    sx = fw - wb + dx
+                    if 0 <= sx < fw:
+                        a = int(120 * (1 - abs(dx - wb // 2) / (wb // 2)))
+                        bar.create_rectangle(sx, 0, sx + 1, bh,
+                                             fill=f"#{min(255,a+135):02x}{min(255,a+135):02x}{min(255,a+135):02x}",
+                                             outline="", tags="wave")
+            except tk.TclError: pass
 
         self.root.after(100, self._animate_loop)
 
@@ -420,12 +408,9 @@ class TerminalManager:
         s = self.s; body = self._panel_body
 
         # Patch-only mode: update text in existing labels, skip full rebuild
-        if same and hasattr(self, '_hdr_label'):
-            try: self._hdr_label.config(
-                text=f"{_fmt_tokens(stats.total_input)} in  {_fmt_tokens(stats.total_output)} out")
-            except tk.TclError: pass
+        if same and hasattr(self, '_bar_texts'):
             for i, se in enumerate(stats.sessions):
-                if i < len(getattr(self, '_bar_texts', [])):
+                if i < len(self._bar_texts):
                     try: self._bar_texts[i].config(
                         text=f"{se.context_pct:.1f}%  {_fmt_tokens(se.input_tokens)} in")
                     except tk.TclError: pass
@@ -436,13 +421,8 @@ class TerminalManager:
         self._wave_labels = []; self._dot_labels = []; self._wave_bars = []; self._dot_canvases = []
         phase = self._animation_phase
 
-        # Header
-        t = f"{_fmt_tokens(stats.total_input)} in  {_fmt_tokens(stats.total_output)} out"
-        c = _fmt_cost(stats.total_cost) if stats.total_cost > 0.001 else ""
-        if c: t += f"       {c}"
-        self._hdr_label = tk.Label(body, text=t, bg=C.base, fg=C.text, font=("Consolas",10))
-        self._hdr_label.grid(row=0,column=0,columnspan=2,sticky="w",pady=(s(2),s(4)))
-        tk.Frame(body, height=1, bg=C.border).grid(row=1,column=0,columnspan=2,sticky="ew",pady=s(2))
+        # No token header — sessions start directly
+        tk.Frame(body, height=1, bg=C.border).grid(row=0,column=0,columnspan=2,sticky="ew",pady=s(2))
         self._bar_texts = []
         self._wave_bars = []
 
