@@ -60,21 +60,18 @@ def _find_transcript(session_id: str, cwd: str) -> Optional[str]:
 
 
 def _read_last_assistant_line(path: str) -> Optional[dict]:
-    """Read the last ~512 bytes of a JSONL file and parse the last line."""
+    """Read the last ~8KB of a JSONL file and return the last assistant line."""
     try:
         with open(path, "rb") as f:
             f.seek(0, os.SEEK_END)
             size = f.tell()
             if size < 10:
                 return None
-            # Read last 8KB for safety
             chunk_start = max(0, size - 8192)
             f.seek(chunk_start)
             raw = f.read()
-            # Decode (ignore errors for partial UTF-8 at boundaries)
             text = raw.decode("utf-8", errors="ignore")
             lines = text.strip().split("\n")
-            # Walk backwards to find an assistant line
             for line in reversed(lines):
                 line = line.strip()
                 if not line:
@@ -88,6 +85,46 @@ def _read_last_assistant_line(path: str) -> Optional[dict]:
         return None
     except (OSError, IOError):
         return None
+
+
+def _read_git_branch(path: str) -> str:
+    """Read the gitBranch field from the last few lines of a transcript."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            if size < 10:
+                return ""
+            chunk_start = max(0, size - 4096)
+            f.seek(chunk_start)
+            raw = f.read()
+            text = raw.decode("utf-8", errors="ignore")
+            for line in reversed(text.strip().split("\n")):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                branch = obj.get("gitBranch", "")
+                if branch:
+                    return branch
+        return ""
+    except (OSError, IOError):
+        return ""
+
+
+def _count_subagents(cwd: str, session_id: str) -> int:
+    """Count sub-agent meta files under the session's subagents/ directory."""
+    proj = _project_path(cwd)
+    sub_dir = os.path.join(PROJECTS_DIR, proj, session_id, "subagents")
+    if not os.path.isdir(sub_dir):
+        return 0
+    try:
+        return len([f for f in os.listdir(sub_dir) if f.endswith(".meta.json")])
+    except OSError:
+        return 0
 
 
 def _fmt_tokens(n: int) -> str:
@@ -119,6 +156,8 @@ class SessionSnapshot:
     cost_usd: float = 0.0
     updated_at: float = 0.0
     short_dir: str = ""
+    git_branch: str = ""
+    subagent_count: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -204,9 +243,11 @@ class SessionMonitor:
                 updated_at=updated, short_dir=short,
             )
 
-            # 2. Find transcript and extract token usage
+            # 2. Find transcript, extract tokens, model, git branch
             tpath = _find_transcript(sid, cwd)
             if tpath:
+                snap.git_branch = _read_git_branch(tpath).replace("HEAD", "")
+                snap.subagent_count = _count_subagents(cwd, sid)
                 last = _read_last_assistant_line(tpath)
                 if last:
                     usage = last.get("message", {}).get("usage", {})

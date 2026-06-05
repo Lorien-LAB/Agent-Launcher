@@ -3,6 +3,7 @@ Agent Launcher - UI for Claude Code, Hermes & Terminal customization
 """
 import ctypes
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -61,6 +62,7 @@ class C:
     sub     = "#A6ADC8"
     blue    = "#89B4FA"
     green   = "#A6E3A1"
+    yellow  = "#F9E2AF"
     mauve   = "#CBA6F7"
 
 
@@ -269,13 +271,266 @@ class TerminalManager:
         self._monitor.on_update(self._on_stats_update)
         self._monitor.scan()  # initial scan
         self._monitor.start()
-        self._stats_panel = None  # popup panel
+        self._stats_panel = None  # persistent stats panel
+        self._animation_phase = 0  # 0.0 → 1.0 cycling for busy pulse
+        self._animating = False
+        self._last_statuses = {}  # session_id → old status for transition detection
+        self._created_sessions = set()  # sessions that just appeared
+        self._create_stats_panel()
         self.root.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
         self.root.after(100, self._create_tray)
+        self.root.after(200, self._animate_loop)
+
+    def _create_stats_panel(self):
+        """Create a persistent floating stats panel near the taskbar."""
+        s = self.s
+        panel = tk.Toplevel(self.root)
+        panel.title("Session Monitor")
+        panel.configure(bg=C.base)
+        panel.overrideredirect(True)  # borderless
+        panel.attributes("-topmost", True)  # always on top
+        panel.attributes("-alpha", 0.92)
+
+        # Position: bottom-right of screen
+        sw = panel.winfo_screenwidth()
+        sh = panel.winfo_screenheight()
+        pw, ph = s(420), s(250)
+        panel.geometry(f"{pw}x{ph}+{sw - pw - s(10)}+{sh - ph - s(60)}")
+
+        # Make draggable
+        self._drag_x, self._drag_y = 0, 0
+        panel.bind("<Button-1>", self._panel_drag_start)
+        panel.bind("<B1-Motion>", self._panel_drag_move)
+
+        # Header
+        hdr = tk.Frame(panel, bg="#2E1A47", height=s(26))
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        tk.Frame(hdr, height=s(1), bg=C.mauve).pack(side="bottom", fill="x")
+        self._panel_title = tk.Label(
+            hdr, text="📊  Session Monitor",
+            bg="#2E1A47", fg=C.text, font=("Segoe UI", 10, "bold"))
+        self._panel_title.pack(pady=(s(3), 0))
+
+        # Body — scrollable frame
+        body = tk.Frame(panel, bg=C.base)
+        body.pack(fill="both", expand=True, padx=s(4), pady=s(4))
+        self._panel_body = body
+
+        self._stats_panel = panel
+
+    def _panel_drag_start(self, event):
+        self._drag_x = event.x
+        self._drag_y = event.y
+
+    def _panel_drag_move(self, event):
+        x = self._stats_panel.winfo_x() + event.x - self._drag_x
+        y = self._stats_panel.winfo_y() + event.y - self._drag_y
+        self._stats_panel.geometry(f"+{x}+{y}")
 
     def _on_stats_update(self, stats):
         """Called by monitor thread → schedule UI update in main thread."""
-        self.root.after(0, lambda: self._update_tray(stats))
+        self._stats = stats
+        self.root.after(0, lambda: [self._update_tray(stats), self._update_panel(stats)])
+
+    def _animate_loop(self):
+        """Only update colors of existing animated labels — no widget destruction."""
+        self._animation_phase = (self._animation_phase + 0.08) % (2 * math.pi)
+        phase = self._animation_phase
+
+        for group in getattr(self, '_wave_labels', []):
+            for i, (label, base_color, offset) in enumerate(group):
+                try:
+                    color = self._pulse_color(base_color, phase - i * offset)
+                    label.config(fg=color)
+                except tk.TclError:
+                    pass
+
+        # Also pulse status dots for busy rows
+        for dot_label, base_color, offset in getattr(self, '_dot_labels', []):
+            try:
+                color = self._pulse_color(base_color, phase - offset)
+                dot_label.config(fg=color)
+            except tk.TclError:
+                pass
+
+        self.root.after(120, self._animate_loop)
+
+    @staticmethod
+    def _pulse_color(base_hex, phase):
+        """Return a color that pulses between dim and near-white."""
+        r = int(base_hex[1:3], 16)
+        g = int(base_hex[3:5], 16)
+        b = int(base_hex[5:7], 16)
+        # Sine wave 0→1→0, squared for sharper peak, scaled to 0→170
+        intensity = math.sin(phase) ** 2
+        boost = int(170 * intensity)
+        r = min(255, r + boost)
+        g = min(255, g + boost)
+        b = min(255, b + boost)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _update_panel(self, stats):
+        """Rebuild panel only when session list changes."""
+        if not self._stats_panel or not self._stats_panel.winfo_exists():
+            return
+        # Hash check: skip rebuild if nothing changed
+        h = hash(tuple((s.session_id, s.status, s.input_tokens) for s in stats.sessions))
+        if h == getattr(self, '_last_panel_hash', None):
+            return
+        self._last_panel_hash = h
+        s = self.s
+        body = self._panel_body
+        for w in body.winfo_children():
+            w.destroy()
+
+        self._wave_labels = []   # list of lists: [(label, base_color, offset_per_char), ...]
+        self._dot_labels = []    # list of tuples: (dot_label, base_color, phase_offset)
+
+        phase = self._animation_phase
+
+        # Header: all on one line
+        hdr_text = f"{_fmt_tokens(stats.total_input)} in  ·  {_fmt_tokens(stats.total_output)} out"
+        cost_text = _fmt_cost(stats.total_cost) if stats.total_cost > 0.001 else ""
+        if cost_text:
+            hdr_text += f"  ·  {cost_text}"
+        tk.Label(body, text=hdr_text,
+                 bg=C.base, fg=C.text, font=("Consolas", 10)).grid(
+                     row=1, column=0, columnspan=2, sticky="w", pady=(s(2), 0))
+
+        tk.Frame(body, height=1, bg=C.border).grid(row=2, column=0, columnspan=2, sticky="ew", pady=s(4))
+
+        # Detect status transitions
+        current = {sess.session_id: sess.status for sess in stats.sessions}
+        for sid, status in current.items():
+            prev = self._last_statuses.get(sid)
+            if prev == "busy" and status == "idle":
+                self._created_sessions.add(sid)
+            elif prev is None and status == "busy":
+                self._created_sessions.add(sid)
+        self._last_statuses = current
+
+        # Clear completed sparkle after 5s
+        to_clean = []
+        for sid in list(self._created_sessions):
+            if current.get(sid) != "busy":
+                to_clean.append(sid)
+        if to_clean:
+            def _clear():
+                for sid in to_clean:
+                    self._created_sessions.discard(sid)
+                # Force rebuild after sparkle expires
+                self._last_panel_hash = None
+                if hasattr(self, '_stats') and self._stats:
+                    self.root.after(0, lambda: self._update_panel(self._stats))
+            self.root.after(5000, _clear)
+
+        # Helper: draw a mini progress bar using Canvas
+        def _draw_bar(parent, pct, w, h, color):
+            bar = tk.Canvas(parent, width=w, height=h, bg=C.base, highlightthickness=0)
+            bar.create_rectangle(0, 0, w, h, fill=C.surface0, outline="")
+            if pct > 0:
+                fill_w = max(2, int(w * pct / 100))
+                bar.create_rectangle(0, 0, fill_w, h, fill=color, outline="")
+            return bar
+
+        row = 3
+        for sess in stats.sessions[:12]:
+            # Status dot
+            if sess.status == "busy":
+                icon = "●"
+                dot_color = self._pulse_color(C.green, phase + row * 0.3)
+            elif sess.session_id in self._created_sessions:
+                icon = "✦"
+                dot_color = C.yellow
+            else:
+                icon = "○"
+                dot_color = C.subtle
+
+            dot_lbl = tk.Label(body, text=icon, bg=C.base, fg=dot_color,
+                               font=("Segoe UI", 10, "bold"))
+            dot_lbl.grid(row=row, column=0, sticky="w")
+            if sess.status == "busy":
+                self._dot_labels.append((dot_lbl, C.green, row * 0.3))
+
+            pct = sess.context_pct
+            bar_color = C.mauve if pct > 80 else (C.yellow if pct > 60 else C.blue)
+
+            # Row 1: directory name (wave if busy) + model badge + git + subagents
+            line1 = tk.Frame(body, bg=C.base)
+            line1.grid(row=row, column=1, sticky="w", padx=(s(4), 0))
+
+            if sess.status == "busy":
+                group = []
+                for ci, ch in enumerate(sess.short_dir):
+                    co = self._pulse_color(C.text, phase - ci * 0.35)
+                    lbl = tk.Label(line1, text=ch, bg=C.base, fg=co,
+                                   font=("Consolas", 9, "bold"))
+                    lbl.pack(side="left")
+                    group.append((lbl, C.text, 0.35))
+                self._wave_labels.append(group)
+            else:
+                tk.Label(line1, text=sess.short_dir, bg=C.base, fg=C.text,
+                         font=("Consolas", 9)).pack(side="left")
+
+            # Model badge
+            if sess.model and sess.model != "?":
+                model_short = sess.model.replace("deepseek-v4-pro", "DSv4").replace("claude-", "")
+                tk.Label(line1, text=f" {model_short}", bg=C.surface0, fg=C.sub,
+                         font=("Consolas", 7), padx=2).pack(side="left", padx=(s(4), 0))
+
+            # Git branch
+            if sess.git_branch:
+                tk.Label(line1, text=f" 🔀{sess.git_branch}", bg=C.base, fg=C.subtle,
+                         font=("Consolas", 7)).pack(side="left", padx=(s(4), 0))
+
+            # Sub-agent count
+            if sess.subagent_count > 0:
+                tk.Label(line1, text=f" ⚡x{sess.subagent_count}", bg=C.base, fg=C.mauve,
+                         font=("Consolas", 7)).pack(side="left", padx=(s(4), 0))
+
+            # Status word (wave-animated)
+            if sess.status == "busy":
+                tk.Label(line1, text="  ", bg=C.base).pack(side="left")
+                for ci, ch in enumerate("RUNNING"):
+                    co = self._pulse_color(C.green, phase - ci * 0.4)
+                    lbl = tk.Label(line1, text=ch, bg=C.base, fg=co,
+                                   font=("Consolas", 8, "bold"))
+                    lbl.pack(side="left")
+                    group.append((lbl, C.green, 0.4))
+            elif sess.session_id in self._created_sessions:
+                tk.Label(line1, text="  ", bg=C.base).pack(side="left")
+                for ci, ch in enumerate("DONE"):
+                    co = self._pulse_color(C.yellow, phase - ci * 0.35)
+                    lbl = tk.Label(line1, text=ch, bg=C.base, fg=co,
+                                   font=("Consolas", 8, "bold"))
+                    lbl.pack(side="left")
+
+            # Row 2: progress bar + token stats
+            line2 = tk.Frame(body, bg=C.base)
+            line2.grid(row=row + 1, column=1, sticky="ew", padx=(s(4), s(4)))
+
+            bar_w = s(260)
+            bar_h = s(4)
+            _draw_bar(line2, pct, bar_w, bar_h, bar_color).pack(side="left", padx=(0, s(6)))
+            tk.Label(line2, text=f"{pct:.0f}%  {_fmt_tokens(sess.input_tokens)} in",
+                     bg=C.base, fg=C.sub, font=("Consolas", 7)).pack(side="left")
+
+            row += 2
+
+        if not stats.sessions:
+            tk.Label(body, text="No active sessions", bg=C.base, fg=C.subtle,
+                     font=("Segoe UI", 9)).grid(row=3, column=0, columnspan=2)
+
+        body.grid_columnconfigure(0, minsize=s(16))
+        body.grid_columnconfigure(1, weight=1)
+
+        # Auto-resize height (2 rows per session → ~30px each)
+        n = max(len(stats.sessions), 1) * 2 + 4
+        h = s(26) + s(n * 15)
+        x = self._stats_panel.winfo_x()
+        y = self._stats_panel.winfo_y()
+        self._stats_panel.geometry(f"{s(420)}x{h}+{x}+{y}")
 
     def _update_tray(self, stats):
         """Refresh tray tooltip with live stats."""
