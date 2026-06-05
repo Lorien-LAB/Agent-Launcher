@@ -340,20 +340,23 @@ class TerminalManager:
         ph = self._stats_panel.winfo_height()
         sw = self._stats_panel.winfo_screenwidth()
         sh = self._stats_panel.winfo_screenheight()
-        # Taskbar offset (reserve room at bottom)
+        # Taskbar real estate
+        import ctypes.wintypes
+        class RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+        work = RECT()
+        ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)
+        tb_h = sh - work.bottom
         snap = 40
         # Snap to left edge
-        if abs(x) < snap:
-            x = 0
+        if abs(x) < snap: x = 0
         # Snap to right edge
-        if abs(x + pw - sw) < snap:
-            x = sw - pw
+        if abs(x + pw - sw) < snap: x = sw - pw
         # Snap to top edge
-        if abs(y) < snap:
-            y = 0
-        # Snap to bottom edge
-        if abs(y + ph - sh) < snap:
-            y = sh - ph
+        if abs(y) < snap: y = 0
+        # Snap to bottom edge (above taskbar)
+        if abs(y + ph - work.bottom) < snap: y = work.bottom - ph
         self._stats_panel.geometry(f"+{x}+{y}")
 
     def _on_stats_update(self, stats):
@@ -558,11 +561,44 @@ class TerminalManager:
             tk.Label(body,text="No active sessions",bg=C.base,fg=C.subtle,font=("Segoe UI",9)).grid(row=3,column=0,columnspan=2)
         body.grid_columnconfigure(1,weight=1)
 
-        # Resize — header(26) + body content
+        # Resize — pinned edge stays fixed, the other edge expands
         body.update_idletasks()
         needed = max(s(80), s(30) + body.winfo_reqheight() + s(4))
-        try: self._stats_panel.geometry(f"{s(420)}x{needed}")
+        prev_h = getattr(self, '_panel_h', needed)
+        try:
+            sw = self._stats_panel.winfo_screenwidth()
+            sh = self._stats_panel.winfo_screenheight()
+            x = self._stats_panel.winfo_x()
+            y = self._stats_panel.winfo_y()
+
+            # Detect taskbar via Windows API: actual work area vs full screen
+            import ctypes.wintypes
+            class RECT(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                            ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+            work = RECT()
+            full = RECT()
+            ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)  # SPI_GETWORKAREA
+            ctypes.windll.user32.GetWindowRect(ctypes.windll.user32.GetDesktopWindow(), ctypes.byref(full))
+            taskbar_h = full.bottom - work.bottom  # taskbar sits at bottom
+
+            work_bottom = sh - taskbar_h  # where the taskbar starts
+
+            top_snapped = (y <= 5)
+            bottom_edge = y + prev_h
+            bottom_snapped = (abs(bottom_edge - work_bottom) < 60) or (work_bottom - bottom_edge < 0 and bottom_edge - work_bottom < 30)
+
+            if bottom_snapped:
+                # Pin bottom edge just above taskbar — grow/shrink upward
+                y = max(0, work_bottom - needed)
+            elif top_snapped:
+                # Pin top edge — grow/shrink downward
+                y = 0
+            # else: floating, keep current position
+
+            self._stats_panel.geometry(f"{s(420)}x{needed}+{x}+{y}")
         except tk.TclError: pass
+        self._panel_h = needed
         if hasattr(self, '_clip_panel'):
             self.root.after(50, lambda: self._clip_panel(s(420), needed))
 
