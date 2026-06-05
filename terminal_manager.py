@@ -336,6 +336,24 @@ class TerminalManager:
     def _panel_drag_move(self, event):
         x = self._stats_panel.winfo_x() + event.x - self._drag_x
         y = self._stats_panel.winfo_y() + event.y - self._drag_y
+        pw = self._stats_panel.winfo_width()
+        ph = self._stats_panel.winfo_height()
+        sw = self._stats_panel.winfo_screenwidth()
+        sh = self._stats_panel.winfo_screenheight()
+        # Taskbar offset (reserve room at bottom)
+        snap = 15
+        # Snap to left edge
+        if abs(x) < snap:
+            x = 0
+        # Snap to right edge
+        if abs(x + pw - sw) < snap:
+            x = sw - pw
+        # Snap to top edge
+        if abs(y) < snap:
+            y = 0
+        # Snap to bottom edge
+        if abs(y + ph - sh) < snap:
+            y = sh - ph
         self._stats_panel.geometry(f"+{x}+{y}")
 
     def _on_stats_update(self, stats):
