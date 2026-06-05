@@ -374,12 +374,9 @@ class TerminalManager:
         """Rebuild panel only when session list changes."""
         if not self._stats_panel or not self._stats_panel.winfo_exists():
             return
-        # Hash check: skip rebuild if nothing changed
-        h = hash(tuple((s.session_id, s.status, s.input_tokens) for s in stats.sessions))
-        if h == getattr(self, '_last_panel_hash', None):
-            return
-        self._last_panel_hash = h
         s = self.s
+        # Force rebuild by skipping hash check for now
+        # (hash was mismatching on DPI scale attribute changes)
         body = self._panel_body
         for w in body.winfo_children():
             w.destroy()
@@ -419,10 +416,7 @@ class TerminalManager:
             def _clear():
                 for sid in to_clean:
                     self._created_sessions.discard(sid)
-                # Force rebuild after sparkle expires
-                self._last_panel_hash = None
-                if hasattr(self, '_stats') and self._stats:
-                    self.root.after(0, lambda: self._update_panel(self._stats))
+                self.root.after(0, lambda: self._update_panel(self._stats))
             self.root.after(5000, _clear)
 
         row = 3
@@ -522,9 +516,8 @@ class TerminalManager:
         body.grid_columnconfigure(0, minsize=s(16))
         body.grid_columnconfigure(1, weight=1)
 
-        # Auto-resize height
-        n = max(len(stats.sessions), 1) + 4
-        h = s(26) + s(n * 28)
+        # Height = fixed header area + per-session rows
+        h = s(60) + max(len(stats.sessions), 1) * s(28)
         x = self._stats_panel.winfo_x()
         y = self._stats_panel.winfo_y()
         self._stats_panel.geometry(f"{s(420)}x{h}+{x}+{y}")
