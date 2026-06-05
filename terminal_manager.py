@@ -341,7 +341,7 @@ class TerminalManager:
         sw = self._stats_panel.winfo_screenwidth()
         sh = self._stats_panel.winfo_screenheight()
         # Taskbar offset (reserve room at bottom)
-        snap = 15
+        snap = 40
         # Snap to left edge
         if abs(x) < snap:
             x = 0
