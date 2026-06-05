@@ -375,6 +375,24 @@ class TerminalManager:
             if not self._stats_panel: return
             self._stats_panel.winfo_exists()
         except tk.TclError: return
+        # Only rebuild when session list changes (id/status), patch values otherwise
+        key = tuple((s.session_id, s.status) for s in stats.sessions)
+        patch_only = (getattr(self, '_last_key', None) == key)
+        self._last_key = key
+
+        if patch_only and hasattr(self, '_row_labels'):
+            # Patch numeric values in-place — no flicker
+            try:
+                self._row_token_labels[0].config(
+                    text=f"{_fmt_tokens(stats.total_input)} in  {_fmt_tokens(stats.total_output)} out")
+            except (tk.TclError, IndexError, KeyError): pass
+            for i, se in enumerate(stats.sessions):
+                try:
+                    self._row_bar_labels[i].config(
+                        text=f"{se.context_pct:.1f}%  {_fmt_tokens(se.input_tokens)} in")
+                except (tk.TclError, IndexError): pass
+            return
+
         s = self.s
         body = self._panel_body
         for w in body.winfo_children(): w.destroy()
@@ -385,7 +403,9 @@ class TerminalManager:
         t = f"{_fmt_tokens(stats.total_input)} in  {_fmt_tokens(stats.total_output)} out"
         c = _fmt_cost(stats.total_cost) if stats.total_cost > 0.001 else ""
         if c: t += f"       {c}"
-        tk.Label(body, text=t, bg=C.base, fg=C.text, font=("Consolas",10)).grid(row=0,column=0,columnspan=2,sticky="w",pady=(s(2),s(4)))
+        hl = tk.Label(body, text=t, bg=C.base, fg=C.text, font=("Consolas",10))
+        hl.grid(row=0,column=0,columnspan=2,sticky="w",pady=(s(2),s(4)))
+        self._row_token_labels = [hl]
         tk.Frame(body, height=1, bg=C.border).grid(row=1,column=0,columnspan=2,sticky="ew",pady=s(2))
 
         # Transitions
@@ -396,9 +416,13 @@ class TerminalManager:
         self._last_statuses = cur
         tc = [si for si in list(self._created_sessions) if cur.get(si) != "busy"]
         if tc:
-            def _cl(): [self._created_sessions.discard(x) for x in tc]; self.root.after(0,lambda: self._update_panel(self._stats) if self._stats else None)
+            def _cl():
+                [self._created_sessions.discard(x) for x in tc]
+                self._last_key = None  # force rebuild
+                self.root.after(0,lambda: self._update_panel(self._stats) if self._stats else None)
             self.root.after(5000, _cl)
 
+        bar_labels = []
         row = 2
         for se in stats.sessions[:12]:
             if se.status == "busy": ic,dc="●", self._pulse_color(C.green, phase+row*0.3)
@@ -448,19 +472,22 @@ class TerminalManager:
             bw,bh=s(200),s(3)
             bar=tk.Canvas(l2,width=bw,height=bh,bg=C.base,highlightthickness=0)
             bar.create_rectangle(0,0,bw,bh,fill=C.listbg,outline="")
-            fw=max(2,int(bw*pct/100))
+            fw=max(3,int(bw*max(0.005,pct/100)))
             bar.create_rectangle(0,0,fw,bh,fill=bc,outline="")
             bar.pack(side="left",padx=(0,s(4)))
             cs=f"{pct:.1f}%"
-            tk.Label(l2,text=f"{cs}  {_fmt_tokens(se.input_tokens)} in",bg=C.base,fg=C.sub,font=("Consolas",7)).pack(side="left")
+            bl = tk.Label(l2,text=f"{cs}  {_fmt_tokens(se.input_tokens)} in",bg=C.base,fg=C.sub,font=("Consolas",7))
+            bl.pack(side="left")
+            bar_labels.append(bl)
             row+=1
+        self._row_bar_labels = bar_labels
 
         if not stats.sessions:
             tk.Label(body,text="No active sessions",bg=C.base,fg=C.subtle,font=("Segoe UI",9)).grid(row=3,column=0,columnspan=2)
         body.grid_columnconfigure(1,weight=1)
 
         # Resize
-        h=max(80, s(28+max(len(stats.sessions),1)*24))
+        h=max(s(80), s(44+max(len(stats.sessions),1)*44))
         try: self._stats_panel.geometry(f"{s(400)}x{h}")
         except tk.TclError: pass
 
