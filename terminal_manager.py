@@ -371,155 +371,98 @@ class TerminalManager:
         return f"#{r:02x}{g:02x}{b:02x}"
 
     def _update_panel(self, stats):
-        if not self._stats_panel or not self._stats_panel.winfo_exists():
-            return
+        try:
+            if not self._stats_panel: return
+            self._stats_panel.winfo_exists()
+        except tk.TclError: return
         s = self.s
-        # Force rebuild by skipping hash check for now
-        # (hash was mismatching on DPI scale attribute changes)
         body = self._panel_body
-        for w in body.winfo_children():
-            w.destroy()
-
-        self._wave_labels = []   # list of lists: [(label, base_color, offset_per_char), ...]
-        self._dot_labels = []    # list of tuples: (dot_label, base_color, phase_offset)
-
+        for w in body.winfo_children(): w.destroy()
+        self._wave_labels = []; self._dot_labels = []
         phase = self._animation_phase
 
-        # Header: all on one line
-        hdr_text = f"{_fmt_tokens(stats.total_input)} in  ·  {_fmt_tokens(stats.total_output)} out"
-        cost_text = _fmt_cost(stats.total_cost) if stats.total_cost > 0.001 else ""
-        if cost_text:
-            hdr_text += f"  ·  {cost_text}"
-        tk.Label(body, text=hdr_text,
-                 bg=C.base, fg=C.text, font=("Consolas", 10)).grid(
-                     row=1, column=0, columnspan=2, sticky="w", pady=(s(2), 0))
+        # Header
+        t = f"{_fmt_tokens(stats.total_input)} in  {_fmt_tokens(stats.total_output)} out"
+        c = _fmt_cost(stats.total_cost) if stats.total_cost > 0.001 else ""
+        if c: t += f"       {c}"
+        tk.Label(body, text=t, bg=C.base, fg=C.text, font=("Consolas",10)).grid(row=0,column=0,columnspan=2,sticky="w",pady=(s(2),s(4)))
+        tk.Frame(body, height=1, bg=C.border).grid(row=1,column=0,columnspan=2,sticky="ew",pady=s(2))
 
-        tk.Frame(body, height=1, bg=C.border).grid(row=2, column=0, columnspan=2, sticky="ew", pady=s(4))
+        # Transitions
+        cur = {se.session_id: se.status for se in stats.sessions}
+        for sid,st in cur.items():
+            pv = self._last_statuses.get(sid)
+            if pv == "busy" and st == "idle": self._created_sessions.add(sid)
+        self._last_statuses = cur
+        tc = [si for si in list(self._created_sessions) if cur.get(si) != "busy"]
+        if tc:
+            def _cl(): [self._created_sessions.discard(x) for x in tc]; self.root.after(0,lambda: self._update_panel(self._stats) if self._stats else None)
+            self.root.after(5000, _cl)
 
-        # Detect status transitions
-        current = {sess.session_id: sess.status for sess in stats.sessions}
-        for sid, status in current.items():
-            prev = self._last_statuses.get(sid)
-            if prev == "busy" and status == "idle":
-                self._created_sessions.add(sid)
-            elif prev is None and status == "busy":
-                self._created_sessions.add(sid)
-        self._last_statuses = current
+        row = 2
+        for se in stats.sessions[:12]:
+            if se.status == "busy": ic,dc="●", self._pulse_color(C.green, phase+row*0.3)
+            elif se.session_id in self._created_sessions: ic,dc="✦",C.yellow
+            else: ic,dc="○", C.subtle
+            dl=tk.Label(body,text=ic,bg=C.base,fg=dc,font=("Segoe UI",10,"bold"))
+            dl.grid(row=row,column=0,sticky="nw")
+            if se.status=="busy": self._dot_labels.append((dl,C.green,row*0.3))
 
-        # Clear completed sparkle after 5s
-        to_clean = []
-        for sid in list(self._created_sessions):
-            if current.get(sid) != "busy":
-                to_clean.append(sid)
-        if to_clean:
-            def _clear():
-                for sid in to_clean:
-                    self._created_sessions.discard(sid)
-                self.root.after(0, lambda: self._update_panel(self._stats))
-            self.root.after(5000, _clear)
+            info=tk.Frame(body,bg=C.base)
+            info.grid(row=row,column=1,sticky="ew",padx=(s(4),s(4)))
+            l1=tk.Frame(info,bg=C.base); l1.pack(fill="x")
 
-        row = 3
-        for sess in stats.sessions[:12]:
-            # Status indicator
-            if sess.status == "busy":
-                icon = "●"
-                dot_color = self._pulse_color(C.green, phase + row * 0.3)
-            elif sess.session_id in self._created_sessions:
-                icon = "✦"
-                dot_color = C.yellow
+            if se.status=="busy":
+                gr=[]
+                for ci,ch in enumerate(se.short_dir):
+                    co=self._pulse_color(C.text,phase-ci*0.35)
+                    lb=tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",9,"bold"))
+                    lb.pack(side="left"); gr.append((lb,C.text,0.35))
+                self._wave_labels.append(gr)
             else:
-                icon = "○"
-                dot_color = C.subtle
+                tk.Label(l1,text=se.short_dir,bg=C.base,fg=C.text,font=("Consolas",9)).pack(side="left")
 
-            dot_lbl = tk.Label(body, text=icon, bg=C.base, fg=dot_color,
-                               font=("Segoe UI", 10, "bold"))
-            dot_lbl.grid(row=row, column=0, sticky="nw")
-            if sess.status == "busy":
-                self._dot_labels.append((dot_lbl, C.green, row * 0.3))
+            if se.model and se.model!="?":
+                ms=se.model.replace("deepseek-v4-pro","DSv4").replace("claude-","")
+                tk.Label(l1,text=f" [{ms}]",bg=C.base,fg=C.subtle,font=("Consolas",7)).pack(side="left",padx=(s(4),0))
+            if se.git_branch:
+                tk.Label(l1,text=f" {se.git_branch}",bg=C.base,fg=C.subtle,font=("Consolas",7)).pack(side="left",padx=(s(2),0))
+            if se.subagent_count>0:
+                tk.Label(l1,text=f" [{se.subagent_count}]",bg=C.base,fg=C.mauve,font=("Consolas",7)).pack(side="left",padx=(s(2),0))
 
-            # Single-row layout: dir + badges + bar + stats
-            info = tk.Frame(body, bg=C.base)
-            info.grid(row=row, column=1, sticky="ew", padx=(s(4), s(4)))
+            if se.status=="busy":
+                tk.Label(l1,text="  ",bg=C.base).pack(side="left")
+                for ci,ch in enumerate("RUNNING"):
+                    co=self._pulse_color(C.green,phase-ci*0.4)
+                    lb=tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",8,"bold"))
+                    lb.pack(side="left"); gr.append((lb,C.green,0.4))
+            elif se.session_id in self._created_sessions:
+                tk.Label(l1,text="  ",bg=C.base).pack(side="left")
+                for ci,ch in enumerate("DONE"):
+                    co=self._pulse_color(C.yellow,phase-ci*0.35)
+                    tk.Label(l1,text=ch,bg=C.base,fg=co,font=("Consolas",8,"bold")).pack(side="left")
 
-            # Line 1: directory (wave if busy) + meta badges
-            l1 = tk.Frame(info, bg=C.base)
-            l1.pack(fill="x")
-
-            if sess.status == "busy":
-                group = []
-                for ci, ch in enumerate(sess.short_dir):
-                    co = self._pulse_color(C.text, phase - ci * 0.35)
-                    lbl = tk.Label(l1, text=ch, bg=C.base, fg=co,
-                                   font=("Consolas", 9, "bold"))
-                    lbl.pack(side="left")
-                    group.append((lbl, C.text, 0.35))
-                self._wave_labels.append(group)
-            else:
-                tk.Label(l1, text=sess.short_dir, bg=C.base, fg=C.text,
-                         font=("Consolas", 9)).pack(side="left")
-
-            # Meta badges: model, git, subagents
-            if sess.model and sess.model != "?":
-                m = sess.model.replace("deepseek-v4-pro", "DSv4").replace("claude-", "")
-                tk.Label(l1, text=f" [{m}]", bg=C.base, fg=C.subtle,
-                         font=("Consolas", 7)).pack(side="left", padx=(s(4), 0))
-            if sess.git_branch:
-                tk.Label(l1, text=f" 🔀{sess.git_branch}", bg=C.base, fg=C.subtle,
-                         font=("Consolas", 7)).pack(side="left", padx=(s(2), 0))
-            if sess.subagent_count > 0:
-                tk.Label(l1, text=f" ⚡x{sess.subagent_count}", bg=C.base, fg=C.mauve,
-                         font=("Consolas", 7)).pack(side="left", padx=(s(2), 0))
-
-            # Status word
-            if sess.status == "busy":
-                tk.Label(l1, text="  ", bg=C.base).pack(side="left")
-                for ci, ch in enumerate("RUNNING"):
-                    co = self._pulse_color(C.green, phase - ci * 0.4)
-                    lbl = tk.Label(l1, text=ch, bg=C.base, fg=co,
-                                   font=("Consolas", 8, "bold"))
-                    lbl.pack(side="left")
-                    group.append((lbl, C.green, 0.4))
-            elif sess.session_id in self._created_sessions:
-                tk.Label(l1, text="  ", bg=C.base).pack(side="left")
-                for ci, ch in enumerate("DONE"):
-                    co = self._pulse_color(C.yellow, phase - ci * 0.35)
-                    lbl = tk.Label(l1, text=ch, bg=C.base, fg=co,
-                                   font=("Consolas", 8, "bold"))
-                    lbl.pack(side="left")
-
-            # Line 2: mini progress bar + ctx% + token count
-            l2 = tk.Frame(info, bg=C.base)
-            l2.pack(fill="x")
-
-            pct = sess.context_pct
-            bar_color = C.mauve if pct > 80 else (C.yellow if pct > 60 else C.blue)
-
-            bar_w = s(200)
-            bar_h = s(3)
-            bar = tk.Canvas(l2, width=bar_w, height=bar_h, bg=C.base, highlightthickness=0)
-            bar.create_rectangle(0, 0, bar_w, bar_h, fill=C.surface0, outline="")
-            fill_w = max(2, int(bar_w * pct / 100))
-            bar.create_rectangle(0, 0, fill_w, bar_h, fill=bar_color, outline="")
-            bar.pack(side="left", padx=(0, s(4)))
-
-            ctx_str = f"{pct:.1f}%" if pct < 1 else f"{pct:.0f}%"
-            tk.Label(l2, text=f"{ctx_str}  {_fmt_tokens(sess.input_tokens)} in",
-                     bg=C.base, fg=C.sub, font=("Consolas", 7)).pack(side="left")
-
-            row += 1
+            l2=tk.Frame(info,bg=C.base); l2.pack(fill="x")
+            pct=se.context_pct
+            bc=C.mauve if pct>80 else (C.yellow if pct>60 else C.blue)
+            bw,bh=s(200),s(3)
+            bar=tk.Canvas(l2,width=bw,height=bh,bg=C.base,highlightthickness=0)
+            bar.create_rectangle(0,0,bw,bh,fill=C.listbg,outline="")
+            fw=max(2,int(bw*pct/100))
+            bar.create_rectangle(0,0,fw,bh,fill=bc,outline="")
+            bar.pack(side="left",padx=(0,s(4)))
+            cs=f"{pct:.1f}%"
+            tk.Label(l2,text=f"{cs}  {_fmt_tokens(se.input_tokens)} in",bg=C.base,fg=C.sub,font=("Consolas",7)).pack(side="left")
+            row+=1
 
         if not stats.sessions:
-            tk.Label(body, text="No active sessions", bg=C.base, fg=C.subtle,
-                     font=("Segoe UI", 9)).grid(row=3, column=0, columnspan=2)
+            tk.Label(body,text="No active sessions",bg=C.base,fg=C.subtle,font=("Segoe UI",9)).grid(row=3,column=0,columnspan=2)
+        body.grid_columnconfigure(1,weight=1)
 
-        body.grid_columnconfigure(0, minsize=s(16))
-        body.grid_columnconfigure(1, weight=1)
-
-        # Height = fixed header area + per-session rows
-        h = s(60) + max(len(stats.sessions), 1) * s(28)
-        x = self._stats_panel.winfo_x()
-        y = self._stats_panel.winfo_y()
-        self._stats_panel.geometry(f"{s(420)}x{h}+{x}+{y}")
+        # Resize
+        h=max(80, s(28+max(len(stats.sessions),1)*24))
+        try: self._stats_panel.geometry(f"{s(400)}x{h}")
+        except tk.TclError: pass
 
     def _update_tray(self, stats):
         """Refresh tray tooltip with live stats."""
