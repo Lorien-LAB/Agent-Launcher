@@ -567,10 +567,6 @@ class TerminalManager:
             bt = tk.Label(l2,text=f"{cs}",bg=C.base,fg=C.sub,font=("Consolas",9))
             bt.pack(side="left")
             self._bar_texts.append(bt)
-            # Last user prompt summary for idle sessions
-            if se.status != "busy" and se.name and se.name not in ("?", ""):
-                tk.Label(info,text=se.name,bg=C.base,fg=C.subtle,
-                         font=("Segoe UI",7,"italic"),anchor="w").pack(fill="x",pady=(s(0),0))
             row+=1
 
         if not stats.sessions:
