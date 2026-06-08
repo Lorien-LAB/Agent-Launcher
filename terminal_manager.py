@@ -333,30 +333,42 @@ class TerminalManager:
         self._drag_x = event.x
         self._drag_y = event.y
 
+    @staticmethod
+    def _get_screen_bottom():
+        """Return the effective bottom y (screen height minus taskbar gap).
+        Handles both permanent taskbar and auto-hide via SHAppBarMessage."""
+        import ctypes.wintypes
+        class RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+        work = RECT()
+        full = RECT()
+        ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)
+        ctypes.windll.user32.GetWindowRect(
+            ctypes.windll.user32.GetDesktopWindow(), ctypes.byref(full))
+        visible_tb = full.bottom - work.bottom  # 0 when auto-hide
+        if visible_tb > 0:
+            return work.bottom
+        try:
+            state = ctypes.windll.shell32.SHAppBarMessage(0x00000004, None)
+            if state & 1:
+                return full.bottom - 4  # auto-hide: 4px trigger gap
+        except Exception:
+            pass
+        return full.bottom
+
     def _panel_drag_move(self, event):
         x = self._stats_panel.winfo_x() + event.x - self._drag_x
         y = self._stats_panel.winfo_y() + event.y - self._drag_y
         pw = self._stats_panel.winfo_width()
         ph = self._stats_panel.winfo_height()
         sw = self._stats_panel.winfo_screenwidth()
-        sh = self._stats_panel.winfo_screenheight()
-        # Taskbar real estate
-        import ctypes.wintypes
-        class RECT(ctypes.Structure):
-            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
-                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-        work = RECT()
-        ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)
-        tb_h = sh - work.bottom
+        sb = self._get_screen_bottom()
         snap = 40
-        # Snap to left edge
         if abs(x) < snap: x = 0
-        # Snap to right edge
         if abs(x + pw - sw) < snap: x = sw - pw
-        # Snap to top edge
         if abs(y) < snap: y = 0
-        # Snap to bottom edge (above taskbar)
-        if abs(y + ph - work.bottom) < snap: y = work.bottom - ph
+        if abs(y + ph - sb) < snap: y = sb - ph
         self._stats_panel.geometry(f"+{x}+{y}")
 
     def _on_stats_update(self, stats):
@@ -566,31 +578,16 @@ class TerminalManager:
         needed = max(s(80), s(30) + body.winfo_reqheight() + s(4))
         prev_h = getattr(self, '_panel_h', needed)
         try:
-            sw = self._stats_panel.winfo_screenwidth()
-            sh = self._stats_panel.winfo_screenheight()
             x = self._stats_panel.winfo_x()
             y = self._stats_panel.winfo_y()
 
-            # Detect taskbar via Windows API: actual work area vs full screen
-            import ctypes.wintypes
-            class RECT(ctypes.Structure):
-                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
-                            ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-            work = RECT()
-            full = RECT()
-            ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)  # SPI_GETWORKAREA
-            ctypes.windll.user32.GetWindowRect(ctypes.windll.user32.GetDesktopWindow(), ctypes.byref(full))
-            taskbar_h = full.bottom - work.bottom  # taskbar sits at bottom
-
-            work_bottom = sh - taskbar_h  # where the taskbar starts
-
+            sb = self._get_screen_bottom()
             top_snapped = (y <= 5)
             bottom_edge = y + prev_h
-            bottom_snapped = (abs(bottom_edge - work_bottom) < 60) or (work_bottom - bottom_edge < 0 and bottom_edge - work_bottom < 30)
+            bottom_snapped = (abs(bottom_edge - sb) < 60)
 
             if bottom_snapped:
-                # Pin bottom edge just above taskbar — grow/shrink upward
-                y = max(0, work_bottom - needed)
+                y = max(0, sb - needed)
             elif top_snapped:
                 # Pin top edge — grow/shrink downward
                 y = 0

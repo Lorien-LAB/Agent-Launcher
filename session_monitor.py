@@ -277,9 +277,9 @@ class SessionMonitor:
             pid = data.get("pid", 0)
             updated = data.get("updatedAt", 0) / 1000.0  # ms → s
 
-            # Short directory label
-            parts = cwd.replace("\\", "/").split("/")
-            short = "/".join(parts[-2:]) if len(parts) >= 2 else cwd
+            # Short directory label — last segment only
+            parts = cwd.replace("\\", "/").strip("/").split("/")
+            short = parts[-1] if parts else cwd
 
             snap = SessionSnapshot(
                 session_id=sid, pid=pid, status=status,
