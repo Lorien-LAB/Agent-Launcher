@@ -170,6 +170,36 @@ def _count_subagents(cwd: str, session_id: str) -> int:
         return 0
 
 
+def _read_last_prompt(tpath: str) -> str:
+    """Read the last user message from the transcript tail (8KB)."""
+    try:
+        with open(tpath, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            chunk_start = max(0, f.tell() - 8192)
+            f.seek(chunk_start)
+            raw = f.read()
+            text = raw.decode("utf-8", errors="ignore")
+            for line in reversed(text.strip().split("\n")):
+                line = line.strip()
+                if not line: continue
+                try: obj = json.loads(line)
+                except json.JSONDecodeError: continue
+                if obj.get("type") == "user":
+                    content = obj.get("message", {}).get("content", "")
+                    if isinstance(content, list):
+                        for block in reversed(content):
+                            if block.get("type") == "text" and isinstance(block.get("text"), str):
+                                content = block["text"]
+                                break
+                        else: continue
+                    if isinstance(content, str):
+                        s = content.replace("\n", " ").strip()
+                        return s[:150] + ("..." if len(s) > 150 else "")
+        return ""
+    except (OSError, IOError):
+        return ""
+
+
 
 def _fmt_tokens(n: int) -> str:
     """Format token count for display."""
@@ -194,6 +224,7 @@ class SessionSnapshot:
     cwd: str
     name: str
     model: str
+    last_prompt: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
     context_pct: float = 0.0
@@ -295,6 +326,9 @@ class SessionMonitor:
 
                 # Model + output from last turn (64KB tail read)
                 snap.model, snap.output_tokens = _read_last_model_and_output(tpath)
+                # Last user prompt for idle sessions (8KB tail read)
+                if status != "busy":
+                    snap.last_prompt = _read_last_prompt(tpath)
 
                 # Context = peak (input + cache_read) across all turns (abtop algorithm)
                 peak_ctx = _read_max_context_tokens(tpath)

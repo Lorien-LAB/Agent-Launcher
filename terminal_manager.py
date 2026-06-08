@@ -567,10 +567,16 @@ class TerminalManager:
             bt = tk.Label(l2,text=f"{cs}",bg=C.base,fg=C.sub,font=("Consolas",9))
             bt.pack(side="left")
             self._bar_texts.append(bt)
-            # Session name as summary for idle/completed sessions
-            if se.name and se.name not in ("?", "") and se.status != "busy":
-                tk.Label(info,text=se.name,bg=C.base,fg=C.subtle,
-                         font=("Segoe UI",7,"italic"),anchor="w").pack(fill="x",pady=(s(0),0))
+            # Session name + last prompt summary for idle/completed sessions
+            if se.status != "busy":
+                lines = []
+                if se.name and se.name not in ("?", ""):
+                    lines.append(se.name)
+                if se.last_prompt:
+                    lines.append(se.last_prompt)
+                if lines:
+                    tk.Label(info,text=" · ".join(lines),bg=C.base,fg=C.subtle,
+                             font=("Segoe UI",7,"italic"),anchor="w",wraplength=s(380)).pack(fill="x",pady=(s(0),0))
             row+=1
 
         if not stats.sessions:
