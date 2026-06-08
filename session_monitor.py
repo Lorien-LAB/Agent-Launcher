@@ -170,39 +170,6 @@ def _count_subagents(cwd: str, session_id: str) -> int:
         return 0
 
 
-_PROMPT_CACHE: Dict[str, str] = {}  # session_id → last user prompt
-
-def _read_last_prompt(tpath: str, session_id: str) -> str:
-    """Full-file scan for last user message, cached per session_id."""
-    if session_id in _PROMPT_CACHE:
-        return _PROMPT_CACHE[session_id]
-    try:
-        with open(tpath, "r", encoding="utf-8", errors="replace") as f:
-            last = ""
-            for line in f:
-                line = line.strip()
-                if not line: continue
-                try: obj = json.loads(line)
-                except json.JSONDecodeError: continue
-                if obj.get("type") != "user" or obj.get("toolUseResult"):
-                    continue
-                content = obj.get("message", {}).get("content", "")
-                if isinstance(content, list):
-                    texts = [b.get("text","") for b in content
-                             if isinstance(b, dict) and b.get("type") == "text" and b.get("text")]
-                    content = " ".join(texts)
-                if isinstance(content, str) and len(content.strip()) > 20:
-                    last = content.strip()
-            if last:
-                s = last.replace("\n", " ").strip()
-                result = s[:150] + ("..." if len(s) > 150 else "")
-                _PROMPT_CACHE[session_id] = result
-                return result
-    except (OSError, IOError):
-        pass
-    return ""
-
-
 
 def _fmt_tokens(n: int) -> str:
     """Format token count for display."""
@@ -227,7 +194,6 @@ class SessionSnapshot:
     cwd: str
     name: str
     model: str
-    last_prompt: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
     context_pct: float = 0.0
@@ -329,9 +295,6 @@ class SessionMonitor:
 
                 # Model + output from last turn (64KB tail read)
                 snap.model, snap.output_tokens = _read_last_model_and_output(tpath)
-                # Last user prompt for idle sessions (8KB tail read)
-                if status != "busy":
-                    snap.last_prompt = _read_last_prompt(tpath, sid)
 
                 # Context = peak (input + cache_read) across all turns (abtop algorithm)
                 peak_ctx = _read_max_context_tokens(tpath)
