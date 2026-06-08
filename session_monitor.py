@@ -170,34 +170,37 @@ def _count_subagents(cwd: str, session_id: str) -> int:
         return 0
 
 
-def _read_last_prompt(tpath: str) -> str:
-    """Read the last user message from the transcript tail (8KB)."""
+_PROMPT_CACHE: Dict[str, str] = {}  # session_id → last user prompt
+
+def _read_last_prompt(tpath: str, session_id: str) -> str:
+    """Full-file scan for last user message, cached per session_id."""
+    if session_id in _PROMPT_CACHE:
+        return _PROMPT_CACHE[session_id]
     try:
-        with open(tpath, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            chunk_start = max(0, f.tell() - 8192)
-            f.seek(chunk_start)
-            raw = f.read()
-            text = raw.decode("utf-8", errors="ignore")
-            for line in reversed(text.strip().split("\n")):
+        with open(tpath, "r", encoding="utf-8", errors="replace") as f:
+            last = ""
+            for line in f:
                 line = line.strip()
                 if not line: continue
                 try: obj = json.loads(line)
                 except json.JSONDecodeError: continue
-                if obj.get("type") == "user":
-                    content = obj.get("message", {}).get("content", "")
-                    if isinstance(content, list):
-                        for block in reversed(content):
-                            if block.get("type") == "text" and isinstance(block.get("text"), str):
-                                content = block["text"]
-                                break
-                        else: continue
-                    if isinstance(content, str):
-                        s = content.replace("\n", " ").strip()
-                        return s[:150] + ("..." if len(s) > 150 else "")
-        return ""
+                if obj.get("type") != "user" or obj.get("toolUseResult"):
+                    continue
+                content = obj.get("message", {}).get("content", "")
+                if isinstance(content, list):
+                    texts = [b.get("text","") for b in content
+                             if isinstance(b, dict) and b.get("type") == "text" and b.get("text")]
+                    content = " ".join(texts)
+                if isinstance(content, str) and len(content.strip()) > 20:
+                    last = content.strip()
+            if last:
+                s = last.replace("\n", " ").strip()
+                result = s[:150] + ("..." if len(s) > 150 else "")
+                _PROMPT_CACHE[session_id] = result
+                return result
     except (OSError, IOError):
-        return ""
+        pass
+    return ""
 
 
 
@@ -328,7 +331,7 @@ class SessionMonitor:
                 snap.model, snap.output_tokens = _read_last_model_and_output(tpath)
                 # Last user prompt for idle sessions (8KB tail read)
                 if status != "busy":
-                    snap.last_prompt = _read_last_prompt(tpath)
+                    snap.last_prompt = _read_last_prompt(tpath, sid)
 
                 # Context = peak (input + cache_read) across all turns (abtop algorithm)
                 peak_ctx = _read_max_context_tokens(tpath)
