@@ -21,8 +21,10 @@ A desktop GUI for launching AI coding agents (Claude Code, Hermes) in specific w
 | **DPI Aware** | Auto-scales to any display resolution (96–192 DPI) |
 | **System Tray** | Close → minimize to tray. Tooltip shows live token stats |
 | **Anti-flicker** | Panel patches text in-place when only values change; full rebuild only on session list changes |
+| **Terminal Pop-to-Front** | When a session completes (busy→idle), its terminal window is brought to the foreground |
+| **Always-on-Top** | Session Monitor panel stays above all other windows |
 | **Edge Snapping** | Panel drags snap to all four screen edges (40px threshold) |
-| **Taskbar Aware** | `SPI_GETWORKAREA` auto-detects taskbar position / auto-hide — panel pins above or beside it |
+| **Taskbar Aware** | `SPI_GETWORKAREA` auto-detects taskbar position / auto-hide — panel pins above it |
 | **Rounded Corners** | `SetWindowRgn` + `CreateRoundRectRgn` for native Windows rounded window corners |
 
 ---
@@ -113,6 +115,7 @@ terminal-manager/
 |--------|-------|---------|
 | `_create_stats_panel()` | TerminalManager | Floating rounded panel with `SetWindowRgn` |
 | `_update_panel()` | TerminalManager | Rebuild or patch session rows |
+| `_bring_terminal_to_front()` | TerminalManager | PID-verified EnumWindows → ShowWindow + SetForegroundWindow |
 | `_animate_loop()` | TerminalManager | 100ms loop — wave labels, star dots, bar sawtooth |
 | `_pulse_color()` | TerminalManager | `sin^2` color boost for glow effects |
 | `scan()` | SessionMonitor | Read `sessions/` + `projects/`, extract stats |
@@ -183,6 +186,7 @@ Output: `dist/AgentLauncher.exe` (~30 MB, no Python required)
 BASE_DIRS = [
     r"D:\Quantitative Trading",
     r"D:\University\Kaggle",
+    r"D:\Obsidian_Lorien_Lab",
 ]
 ```
 
