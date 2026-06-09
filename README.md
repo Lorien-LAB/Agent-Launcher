@@ -21,7 +21,9 @@ A desktop GUI for launching AI coding agents (Claude Code, Hermes) in specific w
 | **DPI Aware** | Auto-scales to any display resolution (96–192 DPI) |
 | **System Tray** | Close → minimize to tray. Tooltip shows live token stats |
 | **Anti-flicker** | Panel patches text in-place when only values change; full rebuild only on session list changes |
-| **Rounded Corners** | Floating panel uses `SetWindowRgn` for smooth rounded edges; buttons use Canvas arcs |
+| **Edge Snapping** | Panel drags snap to all four screen edges (40px threshold) |
+| **Taskbar Aware** | `SPI_GETWORKAREA` auto-detects taskbar position / auto-hide — panel pins above or beside it |
+| **Rounded Corners** | `SetWindowRgn` + `CreateRoundRectRgn` for native Windows rounded window corners |
 
 ---
 

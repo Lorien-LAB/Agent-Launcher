@@ -463,10 +463,22 @@ class TerminalManager:
 
         # Transitions
         cur = {se.session_id: se.status for se in stats.sessions}
+        just_completed = []
         for sid,st in cur.items():
             pv = self._last_statuses.get(sid)
-            if pv == "busy" and st == "idle": self._created_sessions.add(sid)
+            if pv == "busy" and st == "idle":
+                self._created_sessions.add(sid)
+                just_completed.append(sid)
         self._last_statuses = cur
+
+        # Pop panel to front when a session just finished
+        if just_completed:
+            try:
+                self._stats_panel.attributes("-topmost", True)
+                self.root.after(200, lambda: self._stats_panel.attributes("-topmost", True))
+            except tk.TclError:
+                pass
+
         tc = [si for si in list(self._created_sessions) if cur.get(si) != "busy"]
         if tc:
             def _cl():
