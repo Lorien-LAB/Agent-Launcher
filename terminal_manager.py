@@ -471,13 +471,13 @@ class TerminalManager:
                 just_completed.append(sid)
         self._last_statuses = cur
 
-        # Pop panel to front when a session just finished
+        # Pop the session's Windows Terminal to front when done
         if just_completed:
-            try:
-                self._stats_panel.attributes("-topmost", True)
-                self.root.after(200, lambda: self._stats_panel.attributes("-topmost", True))
-            except tk.TclError:
-                pass
+            for sid in just_completed:
+                for se in stats.sessions:
+                    if se.session_id == sid:
+                        self._bring_terminal_to_front(se.short_dir, se.cwd)
+                        break
 
         tc = [si for si in list(self._created_sessions) if cur.get(si) != "busy"]
         if tc:
@@ -612,6 +612,37 @@ class TerminalManager:
             icon = "●" if s.status == "busy" else "○"
             tip += f"\n{icon} {s.short_dir:<28} {_fmt_tokens(s.input_tokens):>6} in"
         self._tray_icon.title = tip[:127]  # Windows limit
+
+    def _bring_terminal_to_front(self, short_dir: str, cwd: str):
+        """Find and activate the Windows Terminal window for a session."""
+        # Use cwd or session name as a match key for the terminal title
+        try:
+            # Busy-sessions started via our launcher have title "Claude Code"
+            # We bring the FIRST matching terminal to front as a notification
+            self._stats_panel.attributes("-topmost", False)
+            import ctypes.wintypes, ctypes
+            user32 = ctypes.windll.user32
+
+            found = []
+            @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_long, ctypes.c_long)
+            def _enum(hwnd, _):
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(hwnd, buf, 255)
+                title = buf.value
+                if title and ("Claude Code" in title or "Hermes" in title):
+                    found.append((hwnd, title))
+                return 1
+            try:
+                user32.EnumWindows(_enum, 0)
+            except Exception:
+                pass
+
+            for hwnd, title in found:
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.SetForegroundWindow(hwnd)
+                break  # bring ONE terminal to front
+        except Exception:
+            pass
 
     def _create_tray(self):
         """Create system tray icon (runs after window is ready)."""
