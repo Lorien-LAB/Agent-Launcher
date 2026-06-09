@@ -44,7 +44,7 @@ WT_SETTINGS_PATH = os.path.join(
     "LocalState",
     "settings.json",
 )
-BASE_DIRS = [r"D:\Quantitative Trading", r"D:\University\Kaggle"]
+BASE_DIRS = [r"D:\Quantitative Trading", r"D:\University\Kaggle", r"D:\Obsidian_Lorien_Lab"]
 HOME_DIR = os.path.expanduser("~")
 CLAUDE_PATH = "C:/Users/Lorien/.local/bin/claude.exe"
 CLAUDE_ARGS = "--dangerously-skip-permissions"
@@ -335,27 +335,15 @@ class TerminalManager:
 
     @staticmethod
     def _get_screen_bottom():
-        """Return the effective bottom y (screen height minus taskbar gap).
-        Handles both permanent taskbar and auto-hide via SHAppBarMessage."""
+        """Return y-coordinate where the usable screen ends (above taskbar).
+        Uses SPI_GETWORKAREA which tracks taskbar position + auto-hide state."""
         import ctypes.wintypes
         class RECT(ctypes.Structure):
             _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
                         ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
         work = RECT()
-        full = RECT()
         ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)
-        ctypes.windll.user32.GetWindowRect(
-            ctypes.windll.user32.GetDesktopWindow(), ctypes.byref(full))
-        visible_tb = full.bottom - work.bottom  # 0 when auto-hide
-        if visible_tb > 0:
-            return work.bottom
-        try:
-            state = ctypes.windll.shell32.SHAppBarMessage(0x00000004, None)
-            if state & 1:
-                return full.bottom - 4  # auto-hide: 4px trigger gap
-        except Exception:
-            pass
-        return full.bottom
+        return work.bottom  # this is the top edge of the taskbar (0 if auto-hide)
 
     def _panel_drag_move(self, event):
         x = self._stats_panel.winfo_x() + event.x - self._drag_x
