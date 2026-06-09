@@ -44,11 +44,12 @@ WT_SETTINGS_PATH = os.path.join(
     "LocalState",
     "settings.json",
 )
-BASE_DIRS = [r"D:\Quantitative Trading", r"D:\University\Kaggle", r"D:\Obsidian_Lorien_Lab"]
+BASE_DIRS = [r"D:\Quantitative Trading", r"D:\University\Kaggle"]
 HOME_DIR = os.path.expanduser("~")
 CLAUDE_PATH = "C:/Users/Lorien/.local/bin/claude.exe"
 CLAUDE_ARGS = "--dangerously-skip-permissions"
 HERMES_PATH = "C:/Users/Lorien/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe"
+_LAUNCHED_PIDS: set = set()  # PIDs of terminal processes launched by us
 
 
 # ─── Colors ──────────────────────────────────────────
@@ -136,10 +137,11 @@ def launch_in_terminal(dir_path, exe_path, args, title):
         fd, tp = tempfile.mkstemp(suffix='.ps1', prefix='launch_')
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             f.write(ps)
-        subprocess.Popen(
+        proc = subprocess.Popen(
             ["wt", "--title", title, "pwsh", "-NoExit", "-File", tp],
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
+        _LAUNCHED_PIDS.add(proc.pid)
         def _clean():
             time.sleep(3)
             try: os.unlink(tp)
@@ -335,15 +337,27 @@ class TerminalManager:
 
     @staticmethod
     def _get_screen_bottom():
-        """Return y-coordinate where the usable screen ends (above taskbar).
-        Uses SPI_GETWORKAREA which tracks taskbar position + auto-hide state."""
+        """Return the effective bottom y (screen height minus taskbar gap).
+        Handles both permanent taskbar and auto-hide via SHAppBarMessage."""
         import ctypes.wintypes
         class RECT(ctypes.Structure):
             _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
                         ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
         work = RECT()
+        full = RECT()
         ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)
-        return work.bottom  # this is the top edge of the taskbar (0 if auto-hide)
+        ctypes.windll.user32.GetWindowRect(
+            ctypes.windll.user32.GetDesktopWindow(), ctypes.byref(full))
+        visible_tb = full.bottom - work.bottom  # 0 when auto-hide
+        if visible_tb > 0:
+            return work.bottom
+        try:
+            state = ctypes.windll.shell32.SHAppBarMessage(0x00000004, None)
+            if state & 1:
+                return full.bottom - 4  # auto-hide: 4px trigger gap
+        except Exception:
+            pass
+        return full.bottom
 
     def _panel_drag_move(self, event):
         x = self._stats_panel.winfo_x() + event.x - self._drag_x
@@ -463,22 +477,12 @@ class TerminalManager:
 
         # Transitions
         cur = {se.session_id: se.status for se in stats.sessions}
-        just_completed = []
         for sid,st in cur.items():
             pv = self._last_statuses.get(sid)
             if pv == "busy" and st == "idle":
                 self._created_sessions.add(sid)
-                just_completed.append(sid)
+                self.root.after(500, self._bring_terminal_to_front)
         self._last_statuses = cur
-
-        # Pop the session's Windows Terminal to front when done
-        if just_completed:
-            for sid in just_completed:
-                for se in stats.sessions:
-                    if se.session_id == sid:
-                        self._bring_terminal_to_front(se.short_dir, se.cwd)
-                        break
-
         tc = [si for si in list(self._created_sessions) if cur.get(si) != "busy"]
         if tc:
             def _cl():
@@ -613,37 +617,6 @@ class TerminalManager:
             tip += f"\n{icon} {s.short_dir:<28} {_fmt_tokens(s.input_tokens):>6} in"
         self._tray_icon.title = tip[:127]  # Windows limit
 
-    def _bring_terminal_to_front(self, short_dir: str, cwd: str):
-        """Find and activate the Windows Terminal window for a session."""
-        # Use cwd or session name as a match key for the terminal title
-        try:
-            # Busy-sessions started via our launcher have title "Claude Code"
-            # We bring the FIRST matching terminal to front as a notification
-            self._stats_panel.attributes("-topmost", False)
-            import ctypes.wintypes, ctypes
-            user32 = ctypes.windll.user32
-
-            found = []
-            @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_long, ctypes.c_long)
-            def _enum(hwnd, _):
-                buf = ctypes.create_unicode_buffer(256)
-                user32.GetWindowTextW(hwnd, buf, 255)
-                title = buf.value
-                if title and ("Claude Code" in title or "Hermes" in title):
-                    found.append((hwnd, title))
-                return 1
-            try:
-                user32.EnumWindows(_enum, 0)
-            except Exception:
-                pass
-
-            for hwnd, title in found:
-                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                user32.SetForegroundWindow(hwnd)
-                break  # bring ONE terminal to front
-        except Exception:
-            pass
-
     def _create_tray(self):
         """Create system tray icon (runs after window is ready)."""
         try:
@@ -677,6 +650,32 @@ class TerminalManager:
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
+
+    def _bring_terminal_to_front(self):
+        """Bring the Claude Code / Hermes terminal window to front on completion."""
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            found = []
+            @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_long, ctypes.c_long)
+            def _enum(hwnd, _):
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(hwnd, buf, 255)
+                title = buf.value
+                if not title or ("Claude Code" not in title and "Hermes" not in title):
+                    return 1
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value in _LAUNCHED_PIDS:
+                    found.append(hwnd)
+                return 1
+            user32.EnumWindows(_enum, 0)
+            for hwnd in found:
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.SetForegroundWindow(hwnd)
+                break
+        except Exception:
+            pass
 
     def _quit_app(self):
         """Fully exit the application."""
