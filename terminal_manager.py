@@ -44,7 +44,12 @@ WT_SETTINGS_PATH = os.path.join(
     "LocalState",
     "settings.json",
 )
-BASE_DIRS = [r"D:\Quantitative Trading", r"D:\University\Kaggle"]
+BASE_DIRS = [
+    r"D:\Quantitative Trading",
+    r"D:\University\Kaggle",
+    r"D:\Obsidian_Lorien_Lab",
+    r"D:\University\比赛\AFAC2026挑战组-赛题一：市场参与者交易行为识别与资金流向分析",
+]
 HOME_DIR = os.path.expanduser("~")
 CLAUDE_PATH = "C:/Users/Lorien/.local/bin/claude.exe"
 CLAUDE_ARGS = "--dangerously-skip-permissions"
