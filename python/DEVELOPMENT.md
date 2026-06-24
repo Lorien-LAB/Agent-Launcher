@@ -3,144 +3,134 @@
 ## Architecture
 
 ```
-terminal_manager.py          # Main GUI (~770 lines)
-  ├── C (Color palette)      # Catppuccin Mocha theme (text: #FFFFFF pure white)
-  ├── NeonButton             # tk.Canvas rounded button with hover glow
-  ├── TerminalManager        # Root class: window, tray, panel, animations
-  └── main()                 # Entry point
+terminal_manager.py
+  ├── C                       # Launcher and Session Monitor palettes
+  ├── NeonButton              # Main-window Canvas button
+  ├── SessionCard             # Reusable monitor card with hover/animation
+  ├── TerminalManager         # Main window, tray, card registry, panel sizing
+  └── main()
 
-session_monitor.py           # Monitoring engine (~330 lines)
-  ├── SessionMonitor         # Background polling (3s interval)
-  ├── SessionSnapshot        # Per-session dataclass
-  └── AggregateStats         # Cross-session totals
+session_monitor.py
+  ├── SessionMonitor          # Background polling every 3 seconds
+  ├── SessionSnapshot         # One session's metrics
+  └── AggregateStats          # Cross-session totals
 ```
 
-## Data Flow
+`SessionMonitor` remains a data source. All tkinter work is marshalled onto the main thread through `root.after()`.
+
+## Monitor Data Flow
 
 ```
-scan_directories()
-  → BASE_DIRS + os.listdir()
-  → Populate tk.Listbox with section headers + child entries
-  → Double-click or Enter → launch_in_terminal()
-    → Embed dir basename in window title: "Claude Code — myproject"
-    → subprocess.Popen(["wt", "--title", full_title, ...], cwd=dir_path)
-    → No temp .ps1 file — uses PowerShell -Command directly
-
-SessionMonitor._loop() (3s poll)
-  → os.listdir(~/.claude/sessions/)  → PID JSON files
-  → _find_transcript()               → ~/.claude/projects/<encoded-path>/<uuid>.jsonl
-  → _read_max_context_tokens()       → full scan, peak input+cache_read
-  → _read_last_model_and_output()    → tail 64KB
-  → _read_git_branch()               → tail 4KB
-  → _count_subagents()               → count subagents/*.meta.json
-  → on_update callback               → stats → _update_tray() + _update_panel()
-
-Animation loop @ 100ms via root.after():
-  _animate_loop()
-    → Per-letter wave (sin² pulse on foreground color)
-    → Star polygon scale pulse + glow ring
-    → Progress bar sawtooth fill (pill-shaped gradient)
-    → Clock update (once/second)
+SessionMonitor.scan()
+  → read ~/.claude/sessions/*.json
+  → locate ~/.claude/projects/<encoded-path>/<session>.jsonl
+  → collect model, tokens, context %, branch, subagents and update time
+  → AggregateStats callback
+  → TerminalManager._update_tray(stats)
+  → TerminalManager._update_panel(stats)
+      ├── update two-row header summary
+      ├── detect busy → idle and create 5-second DONE state
+      ├── create/update/remove SessionCard by session_id
+      └── schedule one coalesced panel resize
 ```
 
-## Session Monitor Panel
+## SessionCard
 
-```
-Floating borderless window (overrideredirect):
-  - Top-center placement by default
-  - -alpha 0.94 (subtle transparency)
-  - SetWindowRgn for 18px rounded corners
-  - Drag to move, edge snapping (40px)
-  - Auto-resize height based on session count
+Each card owns its widgets and delayed callbacks. Its public presentation interface is:
 
-Header:
-  - "Session Monitor" title (Segoe UI 12 bold)
-  - Real-time clock HH:MM:SS (Consolas 13 bold, right-aligned)
-
-Body rows (max 12):
-  - ★ Star indicator: green pulsing (busy), yellow solid (newly completed),
-    grey hollow (idle)
-  - Directory name: per-letter wave animation when busy
-  - Model badge [DSv4/Sonnet/Opus], git branch, sub-agent count
-  - Pill-shaped gradient progress bar (green→yellow→red, rounded ends)
-  - Percentage label with patch-only anti-flicker update
-
-Click to jump:
-  - Click any row → SetForegroundWindow on matching terminal
-  - Matches by directory basename embedded in terminal window title
-```
-
-## Key Algorithms
-
-### Context Window (abtop-compatible)
-```
-For each assistant turn in transcript JSONL:
-  context = input_tokens + (cache_creation if cache_read==0 else cache_read)
-peak = max(context) across all turns
-context_pct = peak / model_max_context × 100%
-```
-
-### Progress Bar
 ```python
-# Pill shape: two arc semi-circles (left + right caps) + rectangle body
-# 12-segment HSL gradient: green(0.33) → yellow → red(0.0)
-hue = (1.0 - t_val) * 0.33
-hsv_to_rgb(hue, 0.88, 0.94)
-# Sawtooth animation: t = (phase * 0.5) % 1, fill width ramps 0→peak
+card.update_snapshot(snapshot, display_state)
+card.set_hovered(True or False)
+card.animate(phase, now)
+card.grid_at(row)
+card.destroy()
 ```
 
-### Wave Animation (per-letter pulse)
+The manager stores cards in:
+
 ```python
-intensity = math.sin(phase - i * offset) ** 2
-boost = int(170 * intensity)
-# Add boost to each RGB channel, clamped to 255
+self._session_cards: dict[str, SessionCard]
 ```
 
-### Anti-Flicker
-```python
-id_key = tuple((s.session_id, s.status) for s in stats.sessions)
-if same: patch-only (update percentage text labels)
-else: full rebuild (destroy and recreate all child widgets)
-```
+Normal polling updates all displayed values in place. Widgets are created only for new sessions and destroyed only when sessions disappear.
+
+## Panel Layout
+
+- Logical width: 430 px before DPI scaling.
+- Borderless, topmost `Toplevel`, alpha 0.94.
+- Native rounded clipping through `SetWindowRgn`.
+- Header row 1: title and clock.
+- Header row 2: active, idle, and total-token summaries.
+- Only the header starts dragging; cards remain clickable.
+- Card viewport scrolls with the mouse wheel when content exceeds the work area.
+- Resizing preserves top or bottom pinning.
+
+## Card Layout
+
+Collapsed cards show:
+
+1. Status star, directory, and RUNNING/DONE/IDLE.
+2. Model, branch, sub-agent count, and context percentage.
+3. Fixed-width gradient context bar.
+
+Hover expands one card at a time and reveals:
+
+- cumulative input/output tokens;
+- estimated cost;
+- working directory;
+- human-readable update age.
+
+Hover entry waits 80 ms and leave waits 120 ms. Card destruction cancels all pending `after()` callbacks.
+
+## Animation
+
+The global loop runs every 100 ms and performs only lightweight drawing:
+
+- clock refresh once per second;
+- subtle header scan line;
+- running status-star and border breathing;
+- moving highlight over a fixed-width gradient bar;
+- warning endpoint pulse above 95% context.
+
+Idle, non-hovered cards avoid continuous redraw. The progress fill width always equals the true context percentage and never resets to zero.
+
+## DONE State
+
+A `busy → idle` transition:
+
+1. stores `time.monotonic() + 5` in `_done_until`;
+2. displays a yellow DONE card state;
+3. schedules terminal focus after 500 ms;
+4. returns to IDLE after the deadline;
+5. immediately returns to RUNNING if the session becomes busy again.
 
 ## Launch Flow
+
 ```
-User double-clicks directory (or presses Enter)
-  → Build full_title = "Claude Code — {dir_basename}" (or "Hermes — {dir_basename}")
-  → subprocess.Popen(["wt", "--title", full_title, "pwsh", "-NoExit",
-      "-Command", f"& '{exe_path}' {args}"], cwd=dir_path)
-  → No temp .ps1 — uses cwd parameter (anti-injection)
-  → Window title carries dir basename for click-to-jump matching
+select directory
+  → launch_in_terminal()
+  → create temporary PowerShell script
+  → wt -w new -d <path> --title "Claude Code — <dir>" pwsh -NoExit -File <script>
+  → remove temporary script after 5 seconds
+  → snapshot-diff Windows Terminal HWNDs for click-to-focus
 ```
 
-## Terminal Pop-to-Front
-```
-_LAUNCHED_HWNDS: {cwd: [hwnd]} — tracked by snapshot-diff on launch
-_bring_terminal_to_front(cwd=None):
-  - cwd given (click): enumerate windows, match dir_tag in title
-  - cwd=None (auto-pop): match any Claude/Hermes window
-  - Only calls SetForegroundWindow (no ShowWindow/SW_RESTORE)
-  - Does NOT change window position or size
-```
+`terminal_manager.py` must import `time`; both temporary-file cleanup and HWND tracking use `time.sleep()`.
 
-## Terminal Integration
-Reads/writes `%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_*\LocalState\settings.json`
-- `profiles.defaults.useAcrylic` + `acrylicOpacity` (0.0–1.0)
-- `profiles.defaults.opacity` (0–100)
+## Verification
 
-## Packaging
-```powershell
-pyinstaller --onefile --windowed --name "AgentLauncher" `
-    --add-data "icon.png;." --add-data "session_monitor.py;." terminal_manager.py
-# Output: dist/AgentLauncher.exe (~30 MB)
+Automated checks:
+
+```bash
+python -m unittest discover -s python/tests -v
+python -m py_compile python/terminal_manager.py python/session_monitor.py
 ```
 
-## Dependencies
-| Package | Version | Purpose |
-|---------|---------|---------|
-| Python | 3.14 | Runtime |
-| tkinter | built-in | GUI |
-| pystray | latest | System tray |
-| Pillow | latest | Tray icon (PNG→ICO) |
-| ctypes | built-in | Windows API (SetWindowRgn, EnumWindows, DPI) |
-| colorsys | built-in | HSL gradient for progress bars |
+A headless Xvfb smoke run can validate tkinter card creation and reconciliation on Linux, but final acceptance still requires Windows testing for:
+
+- Windows Terminal launch/focus;
+- top and bottom panel pinning;
+- high-DPI rendering;
+- Chinese paths;
+- tray shutdown;
+- DONE auto-pop behavior.
