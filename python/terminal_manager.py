@@ -54,6 +54,7 @@ HOME_DIR = os.path.expanduser("~")
 CLAUDE_PATH = "C:/Users/Lorien/.local/bin/claude.exe"
 CLAUDE_ARGS = "--dangerously-skip-permissions"
 HERMES_PATH = "C:/Users/Lorien/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe"
+SESSION_PANEL_WIDTH = 380
 
 
 # ─── Colors ──────────────────────────────────────────
@@ -946,7 +947,7 @@ class TerminalManager:
         panel.attributes("-alpha", 0.94)
         panel.configure(bg=C.panel_bg)
 
-        pw, ph = s(430), s(104)
+        pw, ph = s(SESSION_PANEL_WIDTH), s(104)
         sw = panel.winfo_screenwidth()
         panel.geometry(f"{pw}x{ph}+{sw // 2 - pw // 2}+0")
 
@@ -1281,7 +1282,7 @@ class TerminalManager:
             body = self._panel_body
             body.update_idletasks()
             body_req = body.winfo_reqheight()
-            width = self.s(430)
+            width = self.s(SESSION_PANEL_WIDTH)
             pad = self._panel_pad
             needed = max(
                 self.s(104), self._body_y0 + pad + max(body_req, self.s(30))
