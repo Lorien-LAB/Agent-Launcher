@@ -7,6 +7,7 @@ import math
 import os
 import subprocess
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -55,10 +56,9 @@ CLAUDE_ARGS = "--dangerously-skip-permissions"
 HERMES_PATH = "C:/Users/Lorien/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe"
 
 
-MAX_VISIBLE_CHARS = 16  # max dir-name characters shown at once; overflow scrolls
-
 # ─── Colors ──────────────────────────────────────────
 class C:
+    # Main launcher palette
     base    = "#1E1E2E"
     card    = "#181825"
     listbg  = "#313244"
@@ -70,6 +70,85 @@ class C:
     green   = "#A6E3A1"
     yellow  = "#F9E2AF"
     mauve   = "#CBA6F7"
+
+    # Session Monitor palette
+    panel_bg       = "#11131F"
+    panel_card     = "#191C2B"
+    panel_hover    = "#20243A"
+    panel_border   = "#343B59"
+    panel_busy     = "#4D78B8"
+    panel_focus    = "#7C8CFF"
+    panel_text     = "#F4F7FF"
+    panel_sub      = "#AAB3D1"
+    panel_muted    = "#68708D"
+    cyan           = "#68F0B0"
+    orange         = "#FF9D5C"
+    red            = "#FF6878"
+    purple         = "#A58BFF"
+
+
+def _clamp_pct(value):
+    """Return a display-safe percentage in the inclusive 0..100 range."""
+    try:
+        return max(0.0, min(100.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _short_model_name(model):
+    """Compact verbose model identifiers for card badges."""
+    if not model or model == "?":
+        return ""
+    return model.replace("deepseek-v4-pro", "DSv4").replace("claude-", "")
+
+
+def _format_updated_age(updated_at, now=None):
+    """Format a timestamp as a compact human-readable age label."""
+    if not updated_at:
+        return "Updated —"
+    age = max(0, int((time.time() if now is None else now) - updated_at))
+    if age < 60:
+        return f"Updated {age}s ago"
+    if age < 3600:
+        return f"Updated {age // 60}m ago"
+    return f"Updated {age // 3600}h ago"
+
+
+def _progress_fill_width(width, pct):
+    """Return the fixed progress fill width for a percentage."""
+    return int(max(0, width) * _clamp_pct(pct) / 100.0)
+
+
+def _status_style(display_state):
+    """Return (label, accent, border) for a card display state."""
+    if display_state == "running":
+        return "RUNNING", C.cyan, C.panel_busy
+    if display_state == "done":
+        return "DONE", C.yellow, C.yellow
+    return "IDLE", C.panel_muted, C.panel_border
+
+
+def _context_text_color(pct):
+    """Return the warning text color for a context percentage."""
+    pct = _clamp_pct(pct)
+    if pct >= 95:
+        return C.red
+    if pct >= 85:
+        return C.orange
+    if pct >= 70:
+        return C.yellow
+    return C.panel_sub
+
+
+def _blend_hex(color_a, color_b, amount):
+    """Linearly blend two #RRGGBB colors."""
+    amount = max(0.0, min(1.0, amount))
+    vals = []
+    for i in (1, 3, 5):
+        a = int(color_a[i:i + 2], 16)
+        b = int(color_b[i:i + 2], 16)
+        vals.append(round(a + (b - a) * amount))
+    return "#" + "".join(f"{v:02x}" for v in vals)
 
 
 
@@ -310,6 +389,501 @@ class NeonButton(tk.Canvas):
                           font=self._font)
 
 
+class SessionCard:
+    """Reusable, independently updated Session Monitor card."""
+
+    COLLAPSED_H = 68
+    EXPANDED_H = 118
+    ENTER_DELAY_MS = 80
+    LEAVE_DELAY_MS = 120
+    HEIGHT_TICK_MS = 20
+
+    def __init__(self, parent, scale, on_activate, on_height_changed,
+                 on_hover_request, on_mousewheel=None):
+        self.parent = parent
+        self.s = scale
+        self.on_activate = on_activate
+        self.on_height_changed = on_height_changed
+        self.on_hover_request = on_hover_request
+        self.on_mousewheel = on_mousewheel
+        self.snapshot = None
+        self.session_id = ""
+        self.display_state = "idle"
+        self.hovered = False
+        self._destroyed = False
+        self._hover_after_id = None
+        self._height_after_id = None
+        self._leave_check_id = None
+        self._tooltip_after_id = None
+        self._path_tooltip = None
+        self._full_path = ""
+        self._last_age_second = None
+        self._current_h = self.s(self.COLLAPSED_H)
+        self._target_h = self._current_h
+
+        self.frame = tk.Frame(
+            parent, bg=C.panel_bg, height=self._current_h,
+            highlightthickness=0, cursor="hand2",
+        )
+        self.frame.grid_propagate(False)
+        self.frame.grid_columnconfigure(0, weight=1)
+
+        self._card_canvas = tk.Canvas(
+            self.frame, bg=C.panel_bg, highlightthickness=0, bd=0,
+        )
+        self._card_canvas.place(x=0, y=0, relwidth=1, relheight=1)
+        self._card_canvas.bind("<Configure>", lambda _e: self._draw_card(0.0))
+
+        self._content = tk.Frame(self.frame, bg=C.panel_card)
+        self._content.place(
+            x=self.s(13), y=self.s(8), relwidth=1, width=-self.s(26),
+        )
+
+        top = tk.Frame(self._content, bg=C.panel_card)
+        top.pack(fill="x")
+        self._status_canvas = tk.Canvas(
+            top, width=self.s(18), height=self.s(18), bg=C.panel_card,
+            highlightthickness=0, bd=0,
+        )
+        self._status_canvas.pack(side="left", padx=(0, self.s(6)))
+        self._name_label = tk.Label(
+            top, text="", bg=C.panel_card, fg=C.panel_text,
+            font=("Consolas", 11, "bold"), anchor="w",
+        )
+        self._name_label.pack(side="left", fill="x", expand=True)
+        self._state_label = tk.Label(
+            top, text="IDLE", bg=C.panel_card, fg=C.panel_muted,
+            font=("Consolas", 9, "bold"), anchor="e",
+        )
+        self._state_label.pack(side="right")
+
+        meta = tk.Frame(self._content, bg=C.panel_card)
+        meta.pack(fill="x", pady=(self.s(2), 0))
+        badges = tk.Frame(meta, bg=C.panel_card)
+        badges.pack(side="left", fill="x", expand=True)
+        self._model_badge = self._make_badge(badges, C.purple)
+        self._branch_badge = self._make_badge(badges, C.blue)
+        self._agent_badge = self._make_badge(badges, C.cyan)
+        self._pct_label = tk.Label(
+            meta, text="0.0%", bg=C.panel_card, fg=C.panel_sub,
+            font=("Consolas", 9, "bold"), anchor="e",
+        )
+        self._pct_label.pack(side="right")
+
+        self._progress_canvas = tk.Canvas(
+            self._content, height=self.s(7), bg=C.panel_card,
+            highlightthickness=0, bd=0,
+        )
+        self._progress_canvas.pack(fill="x", pady=(self.s(4), 0))
+        self._progress_canvas.bind(
+            "<Configure>", lambda _e: self._draw_progress(0.0)
+        )
+
+        self._details = tk.Frame(self._content, bg=C.panel_card)
+        self._details.pack(fill="x", pady=(self.s(8), 0))
+        self._token_label = tk.Label(
+            self._details, text="", bg=C.panel_card, fg=C.panel_sub,
+            font=("Consolas", 9), anchor="w",
+        )
+        self._token_label.pack(fill="x")
+        self._path_label = tk.Label(
+            self._details, text="", bg=C.panel_card, fg=C.panel_muted,
+            font=("Consolas", 8), anchor="w",
+        )
+        self._path_label.pack(fill="x", pady=(self.s(2), 0))
+        self._updated_label = tk.Label(
+            self._details, text="Updated —", bg=C.panel_card,
+            fg=C.panel_muted, font=("Segoe UI", 8), anchor="w",
+        )
+        self._updated_label.pack(fill="x", pady=(self.s(1), 0))
+        self._path_label.bind("<Enter>", self._schedule_path_tooltip, add="+")
+        self._path_label.bind("<Leave>", self._hide_path_tooltip, add="+")
+
+        self._bind_interactions(self.frame)
+
+    def _make_badge(self, parent, color):
+        label = tk.Label(
+            parent, text="", bg=C.panel_card, fg=color,
+            font=("Consolas", 8, "bold"), padx=self.s(4), pady=0,
+        )
+        return label
+
+    def _set_badge(self, label, text):
+        if text:
+            label.configure(text=text)
+            if not label.winfo_manager():
+                label.pack(side="left", padx=(0, self.s(5)))
+        elif label.winfo_manager():
+            label.pack_forget()
+
+    def _bind_interactions(self, widget):
+        widget.bind("<Enter>", self._on_enter, add="+")
+        widget.bind("<Leave>", self._on_leave, add="+")
+        widget.bind("<Button-1>", self._on_click, add="+")
+        if self.on_mousewheel is not None:
+            widget.bind("<MouseWheel>", self._on_mousewheel, add="+")
+        for child in widget.winfo_children():
+            self._bind_interactions(child)
+
+    def _on_click(self, _event=None):
+        if self.snapshot and self.snapshot.cwd:
+            self.on_activate(self.snapshot.cwd)
+
+    def _on_mousewheel(self, event):
+        if self.on_mousewheel is not None:
+            self.on_mousewheel(event.delta)
+        return "break"
+
+    def _schedule_path_tooltip(self, _event=None):
+        self._hide_path_tooltip()
+        if not self._full_path or self._full_path == "—":
+            return
+        try:
+            self._tooltip_after_id = self.frame.after(450, self._show_path_tooltip)
+        except tk.TclError:
+            self._tooltip_after_id = None
+
+    def _show_path_tooltip(self):
+        self._tooltip_after_id = None
+        if self._destroyed or not self._full_path:
+            return
+        try:
+            tip = tk.Toplevel(self.frame)
+            tip.overrideredirect(True)
+            tip.attributes("-topmost", True)
+            tip.configure(bg=C.panel_focus)
+            tk.Label(
+                tip, text=self._full_path, bg=C.panel_card, fg=C.panel_text,
+                font=("Consolas", 8), padx=self.s(8), pady=self.s(4),
+            ).pack(padx=1, pady=1)
+            x, y = self.frame.winfo_pointerxy()
+            tip.geometry(f"+{x + self.s(12)}+{y + self.s(14)}")
+            self._path_tooltip = tip
+        except tk.TclError:
+            self._path_tooltip = None
+
+    def _hide_path_tooltip(self, _event=None):
+        self._cancel_after("_tooltip_after_id")
+        tip = self._path_tooltip
+        self._path_tooltip = None
+        if tip is not None:
+            try:
+                tip.destroy()
+            except tk.TclError:
+                pass
+
+    def _on_enter(self, _event=None):
+        if self._destroyed:
+            return
+        self._cancel_after("_leave_check_id")
+        self.on_hover_request(self.session_id, True)
+
+    def _on_leave(self, _event=None):
+        if self._destroyed:
+            return
+        self._cancel_after("_leave_check_id")
+        self._leave_check_id = self.frame.after(25, self._check_pointer_left)
+
+    def _check_pointer_left(self):
+        self._leave_check_id = None
+        if self._destroyed:
+            return
+        try:
+            x, y = self.frame.winfo_pointerxy()
+            widget = self.frame.winfo_containing(x, y)
+            while widget is not None:
+                if widget is self.frame:
+                    return
+                widget = getattr(widget, "master", None)
+        except tk.TclError:
+            pass
+        self.on_hover_request(self.session_id, False)
+
+    def set_hovered(self, hovered, immediate=False):
+        if self._destroyed:
+            return
+        self._cancel_after("_hover_after_id")
+        delay = 0 if immediate else (
+            self.ENTER_DELAY_MS if hovered else self.LEAVE_DELAY_MS
+        )
+        self._hover_after_id = self.frame.after(
+            delay, lambda h=hovered: self._apply_hover(h)
+        )
+
+    def _apply_hover(self, hovered):
+        self._hover_after_id = None
+        if self._destroyed or self.hovered == hovered:
+            return
+        self.hovered = hovered
+        self._target_h = self.s(
+            self.EXPANDED_H if hovered else self.COLLAPSED_H
+        )
+        self._apply_background()
+        self._start_height_animation()
+
+    def _start_height_animation(self):
+        if self._height_after_id is None:
+            self._height_after_id = self.frame.after(0, self._tick_height)
+
+    def _tick_height(self):
+        self._height_after_id = None
+        if self._destroyed:
+            return
+        delta = self._target_h - self._current_h
+        if abs(delta) <= 1:
+            self._current_h = self._target_h
+        else:
+            step = max(1, int(abs(delta) * 0.34))
+            self._current_h += step if delta > 0 else -step
+        try:
+            self.frame.configure(height=self._current_h)
+            self._draw_card(0.0)
+            self.on_height_changed()
+        except tk.TclError:
+            return
+        if self._current_h != self._target_h:
+            self._height_after_id = self.frame.after(
+                self.HEIGHT_TICK_MS, self._tick_height
+            )
+
+    def update_snapshot(self, snapshot, display_state):
+        if self._destroyed:
+            return
+        self.snapshot = snapshot
+        self.session_id = snapshot.session_id
+        self.display_state = display_state
+
+        name = snapshot.short_dir or snapshot.name or "?"
+        if len(name) > 30:
+            name = name[:29] + "…"
+        self._name_label.configure(text=name)
+
+        state_text, state_color, _border = _status_style(display_state)
+        self._state_label.configure(text=state_text, fg=state_color)
+
+        model = _short_model_name(snapshot.model)
+        branch = (snapshot.git_branch or "").strip()
+        if branch.lower() in ("main", "master"):
+            branch = ""
+        agents = f"{snapshot.subagent_count} agents" if snapshot.subagent_count else ""
+        self._set_badge(self._model_badge, model)
+        self._set_badge(self._branch_badge, branch)
+        self._set_badge(self._agent_badge, agents)
+
+        pct = _clamp_pct(snapshot.context_pct)
+        self._pct_label.configure(
+            text=f"{pct:.1f}%", fg=_context_text_color(pct)
+        )
+        self._token_label.configure(
+            text=(f"{_fmt_tokens(snapshot.input_tokens)} input  ·  "
+                  f"{_fmt_tokens(snapshot.output_tokens)} output  ·  "
+                  f"{_fmt_cost(snapshot.cost_usd)}")
+        )
+        full_path = snapshot.cwd or "—"
+        self._full_path = full_path
+        shown_path = full_path if len(full_path) <= 58 else "…" + full_path[-57:]
+        self._path_label.configure(text=shown_path)
+        self._updated_label.configure(text=_format_updated_age(snapshot.updated_at))
+        self._last_age_second = int(time.time())
+        self._apply_background()
+        self._draw_all(0.0)
+
+    def _apply_background(self):
+        bg = C.panel_hover if self.hovered else C.panel_card
+        widgets = [
+            self._content, self._name_label, self._state_label,
+            self._model_badge, self._branch_badge, self._agent_badge,
+            self._pct_label, self._progress_canvas, self._details,
+            self._token_label, self._path_label, self._updated_label,
+            self._status_canvas,
+        ]
+        for widget in widgets:
+            try:
+                widget.configure(bg=bg)
+            except tk.TclError:
+                pass
+        for child in self._content.winfo_children():
+            if isinstance(child, tk.Frame):
+                child.configure(bg=bg)
+                for grandchild in child.winfo_children():
+                    if isinstance(grandchild, tk.Frame):
+                        grandchild.configure(bg=bg)
+
+    def _draw_all(self, phase):
+        self._draw_card(phase)
+        self._draw_status(phase)
+        self._draw_progress(phase)
+
+    def _draw_card(self, phase):
+        if self._destroyed:
+            return
+        try:
+            cv = self._card_canvas
+            w = cv.winfo_width()
+            h = self._current_h
+            if w < self.s(40) or h < self.s(20):
+                return
+            cv.delete("all")
+            bg = C.panel_hover if self.hovered else C.panel_card
+            _label, _accent, border = _status_style(self.display_state)
+            if self.hovered:
+                border = C.panel_focus
+            elif self.display_state == "running":
+                strength = 0.18 + 0.18 * (0.5 + 0.5 * math.sin(phase))
+                border = _blend_hex(C.panel_busy, C.panel_focus, strength)
+            _round_rect(
+                cv, 1, 1, w - 2, h - 2, self.s(14),
+                fill=bg, outline=border,
+            )
+            # Thin cyber accent rail on the left.
+            rail = _status_style(self.display_state)[1]
+            cv.create_line(
+                self.s(5), self.s(18), self.s(5), h - self.s(18),
+                fill=rail, width=self.s(2),
+            )
+        except tk.TclError:
+            pass
+
+    def _draw_status(self, phase):
+        try:
+            cv = self._status_canvas
+            cv.delete("all")
+            d = self.s(18)
+            cx = cy = d / 2
+            _text, color, _border = _status_style(self.display_state)
+            if self.display_state == "running":
+                size = self.s(6.2) * (0.90 + 0.10 * math.sin(phase))
+            elif self.display_state == "done":
+                size = self.s(6.0)
+            else:
+                size = self.s(4.2)
+            p = 0.38
+            pts = [
+                cx, cy - size, cx + size * p, cy - size * p,
+                cx + size, cy, cx + size * p, cy + size * p,
+                cx, cy + size, cx - size * p, cy + size * p,
+                cx - size, cy, cx - size * p, cy - size * p,
+            ]
+            if self.display_state == "idle":
+                cv.create_polygon(pts, fill="", outline=color, width=1, smooth=True)
+            else:
+                cv.create_polygon(pts, fill=color, outline="", smooth=True)
+                if self.display_state == "running":
+                    glow = _blend_hex(color, "#FFFFFF", 0.35)
+                    cv.create_polygon(pts, fill="", outline=glow, width=1, smooth=True)
+        except tk.TclError:
+            pass
+
+    def _draw_progress(self, phase):
+        if self._destroyed or not self.snapshot:
+            return
+        try:
+            import colorsys
+            cv = self._progress_canvas
+            w = cv.winfo_width()
+            h = max(self.s(5), cv.winfo_height())
+            if w < self.s(20):
+                return
+            cv.delete("all")
+            r = h / 2
+            d = 2 * r
+            bg = "#282C43"
+            cv.create_arc(0, 0, d, h, start=90, extent=180, fill=bg, outline="")
+            cv.create_rectangle(r, 0, w - r, h, fill=bg, outline="")
+            cv.create_arc(w - d, 0, w, h, start=270, extent=180, fill=bg, outline="")
+
+            pct = _clamp_pct(self.snapshot.context_pct)
+            fw = _progress_fill_width(w, pct)
+            if fw <= 0:
+                return
+
+            def grad_color(position):
+                t = max(0.0, min(1.0, position / max(1, w)))
+                hue = (1.0 - t) * 0.33
+                rr, gg, bb = colorsys.hsv_to_rgb(hue, 0.86, 0.96)
+                return f"#{int(rr * 255):02x}{int(gg * 255):02x}{int(bb * 255):02x}"
+
+            if fw <= d:
+                cv.create_oval(0, 0, fw, h, fill=grad_color(fw / 2), outline="")
+            else:
+                cv.create_arc(0, 0, d, h, start=90, extent=180,
+                              fill=grad_color(0), outline="")
+                body_start = r
+                body_end = fw - r
+                segments = max(1, min(40, int((body_end - body_start) / 5)))
+                seg_w = (body_end - body_start) / segments if segments else 0
+                for i in range(segments):
+                    x0 = body_start + i * seg_w
+                    x1 = body_start + (i + 1) * seg_w + 1
+                    cv.create_rectangle(
+                        x0, 0, x1, h,
+                        fill=grad_color((x0 + x1) / 2), outline="",
+                    )
+                cv.create_arc(fw - d, 0, fw, h, start=270, extent=180,
+                              fill=grad_color(fw), outline="")
+
+            if self.display_state == "running" and fw > self.s(14):
+                shimmer_t = (0.5 + 0.5 * math.sin(phase * 0.72))
+                x = self.s(5) + shimmer_t * max(1, fw - self.s(10))
+                cv.create_line(x, 1, x, h - 1, fill="#E8FFFF", width=self.s(2))
+            if pct >= 95 and fw > r:
+                pulse = 0.45 + 0.35 * (0.5 + 0.5 * math.sin(phase * 1.3))
+                endpoint = _blend_hex(C.red, "#FFFFFF", pulse)
+                cv.create_oval(
+                    fw - r - self.s(1), -self.s(1),
+                    fw + r + self.s(1), h + self.s(1),
+                    outline=endpoint, width=1,
+                )
+        except tk.TclError:
+            pass
+
+    def animate(self, phase, now):
+        if self._destroyed or not self.snapshot:
+            return
+        second = int(now)
+        if second != self._last_age_second:
+            self._last_age_second = second
+            try:
+                self._updated_label.configure(
+                    text=_format_updated_age(self.snapshot.updated_at, now)
+                )
+            except tk.TclError:
+                return
+        pct = _clamp_pct(self.snapshot.context_pct)
+        if self.display_state == "running" or self.display_state == "done" or self.hovered or pct >= 95:
+            self._draw_all(phase)
+
+    def grid_at(self, row):
+        if self._destroyed:
+            return
+        self.frame.grid(
+            row=row, column=0, sticky="ew",
+            padx=(self.s(1), self.s(1)), pady=(0, self.s(6)),
+        )
+
+    def _cancel_after(self, attr):
+        after_id = getattr(self, attr, None)
+        if after_id is None:
+            return
+        try:
+            self.frame.after_cancel(after_id)
+        except tk.TclError:
+            pass
+        setattr(self, attr, None)
+
+    def destroy(self):
+        if self._destroyed:
+            return
+        self._destroyed = True
+        self._hide_path_tooltip()
+        for attr in ("_hover_after_id", "_height_after_id", "_leave_check_id"):
+            self._cancel_after(attr)
+        try:
+            self.frame.destroy()
+        except tk.TclError:
+            pass
+
+
 # ─── Main App ────────────────────────────────────────
 class TerminalManager:
     def __init__(self, root):
@@ -336,87 +910,157 @@ class TerminalManager:
         self.build_ui()
         self.load_current_settings()
 
-        # ── System Tray ──
+        # ── System Tray + Session Monitor ──
         self._tray = None
         self._tray_icon = None
+        self._stats = None
+        self._stats_panel = None
+        self._animation_phase = 0.0
+        self._animation_after_id = None
+        self._panel_resize_after_id = None
+        self._last_statuses = {}
+        self._done_until = {}
+        self._session_cards = {}
+        self._expanded_session_id = None
+
+        self._create_stats_panel()
         self._monitor = SessionMonitor()
         self._monitor.on_update(self._on_stats_update)
-        self._monitor.scan()  # initial scan
+        self._monitor.scan()
         self._monitor.start()
-        self._stats_panel = None  # persistent stats panel
-        self._animation_phase = 0  # 0.0 → 1.0 cycling for busy pulse
-        self._animating = False
-        self._last_statuses = {}  # session_id → old status for transition detection
-        self._created_sessions = set()  # sessions that just appeared
-        self._create_stats_panel()
+
         self.root.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
         self.root.after(100, self._create_tray)
-        self.root.after(200, self._animate_loop)
+        self._animation_after_id = self.root.after(200, self._animate_loop)
 
     def _create_stats_panel(self):
-        """Create a semi-transparent floating panel with rounded corners."""
-        if self._stats_panel is not None: return
+        """Create the rounded, futuristic Session Monitor window."""
+        if self._stats_panel is not None:
+            return
         s = self.s
 
         panel = tk.Toplevel(self.root)
         panel.title("Session Monitor")
         panel.overrideredirect(True)
         panel.attributes("-topmost", True)
-        panel.attributes("-alpha", 0.92)
-        panel.configure(bg=C.base)
+        panel.attributes("-alpha", 0.94)
+        panel.configure(bg=C.panel_bg)
 
-        pw, ph = s(350), s(80)
+        pw, ph = s(430), s(104)
         sw = panel.winfo_screenwidth()
         panel.geometry(f"{pw}x{ph}+{sw // 2 - pw // 2}+0")
 
-        R = s(18)
-        pad = s(6)
+        radius = s(18)
+        pad = s(8)
 
-        # Drag
-        panel.bind("<Button-1>", self._panel_drag_start)
-        panel.bind("<B1-Motion>", self._panel_drag_move)
+        header = tk.Frame(panel, bg=C.panel_bg, height=s(60))
+        header.place(x=pad, y=pad, relwidth=1, width=-2 * pad, height=s(60))
+        header.pack_propagate(False)
 
-        # Header line — flat labels on panel, no extra frame
-        hdr_y = pad
-        tk.Label(panel, text="Session Monitor", bg=C.base, fg=C.text,
-                 font=("Segoe UI", 12, "bold")).place(x=pad + s(4), y=hdr_y)
-        self._clock_label = tk.Label(panel, text="--:--:--", bg=C.base, fg=C.sub,
-                                     font=("Consolas", 13, "bold"))
-        self._clock_label.place(relx=1, x=-pad - s(4), y=hdr_y, anchor="ne")
+        top = tk.Frame(header, bg=C.panel_bg)
+        top.pack(fill="x")
+        tk.Label(
+            top, text="SESSION MONITOR", bg=C.panel_bg, fg=C.panel_text,
+            font=("Segoe UI", 11, "bold"),
+        ).pack(side="left")
+        self._clock_label = tk.Label(
+            top, text="--:--:--", bg=C.panel_bg, fg=C.panel_sub,
+            font=("Consolas", 12, "bold"),
+        )
+        self._clock_label.pack(side="right")
 
-        # Mauve separator line
-        tk.Frame(panel, height=s(1), bg=C.mauve).place(
-            x=pad, y=hdr_y + s(22), relwidth=1, width=-2 * pad)
+        summary = tk.Frame(header, bg=C.panel_bg)
+        summary.pack(fill="x", pady=(s(5), 0))
+        self._active_summary = tk.Label(
+            summary, text="● 0 ACTIVE", bg=C.panel_bg, fg=C.cyan,
+            font=("Consolas", 8, "bold"),
+        )
+        self._active_summary.pack(side="left")
+        self._idle_summary = tk.Label(
+            summary, text="○ 0 IDLE", bg=C.panel_bg, fg=C.panel_muted,
+            font=("Consolas", 8, "bold"),
+        )
+        self._idle_summary.pack(side="left", padx=(s(12), 0))
+        self._token_summary = tk.Label(
+            summary, text="0 TOKENS", bg=C.panel_bg, fg=C.purple,
+            font=("Consolas", 8, "bold"),
+        )
+        self._token_summary.pack(side="right")
 
-        # Content — flat frame directly on panel
-        body_y = hdr_y + s(24) + s(2)
-        content = tk.Frame(panel, bg=C.base)
-        content.place(x=pad, y=body_y, relwidth=1, width=-2 * pad)
+        self._header_scan = tk.Canvas(
+            header, height=s(2), bg=C.panel_bg, highlightthickness=0, bd=0,
+        )
+        self._header_scan.pack(fill="x", pady=(s(6), 0))
+
+        self._bind_panel_drag(header)
+
+        body_y = pad + s(64)
+        viewport = tk.Canvas(
+            panel, bg=C.panel_bg, highlightthickness=0, bd=0,
+            yscrollincrement=s(28),
+        )
+        viewport.place(x=pad, y=body_y, relwidth=1, width=-2 * pad)
+        content = tk.Frame(viewport, bg=C.panel_bg)
+        content.grid_columnconfigure(0, weight=1)
+        body_window = viewport.create_window((0, 0), window=content, anchor="nw")
+        content.bind(
+            "<Configure>",
+            lambda _e: viewport.configure(scrollregion=viewport.bbox("all")),
+        )
+        viewport.bind(
+            "<Configure>",
+            lambda e: viewport.itemconfigure(body_window, width=e.width),
+        )
+        viewport.bind("<MouseWheel>", lambda e: self._scroll_panel(e.delta))
+        self._panel_viewport = viewport
+        self._panel_body_window = body_window
         self._panel_body = content
         self._body_y0 = body_y
-        self._panel_r = R
+        self._panel_r = radius
+        self._panel_pad = pad
+        self._panel_h = ph
         self._stats_panel = panel
 
-        # Round-corner clip via GetWindowRect → guaranteed physical pixels
+        self._empty_label = tk.Label(
+            content, text="NO ACTIVE SESSIONS", bg=C.panel_bg,
+            fg=C.panel_muted, font=("Consolas", 9, "bold"),
+        )
+
         def _do_clip():
             try:
                 import ctypes.wintypes
                 hwnd = int(panel.frame(), 16)
                 rect = ctypes.wintypes.RECT()
-                ctypes.windll.user32.GetWindowRect(ctypes.wintypes.HWND(hwnd), ctypes.byref(rect))
-                pw = rect.right - rect.left
-                ph = rect.bottom - rect.top
-                if pw < 10 or ph < 10: return
-                d = R * 2
-                hrgn = ctypes.windll.gdi32.CreateRoundRectRgn(0, 0, pw, ph, d, d)
-                ctypes.windll.user32.SetWindowRgn(ctypes.wintypes.HWND(hwnd), hrgn, True)
-            except Exception: pass
+                ctypes.windll.user32.GetWindowRect(
+                    ctypes.wintypes.HWND(hwnd), ctypes.byref(rect)
+                )
+                clip_w = rect.right - rect.left
+                clip_h = rect.bottom - rect.top
+                if clip_w < 10 or clip_h < 10:
+                    return
+                d = radius * 2
+                hrgn = ctypes.windll.gdi32.CreateRoundRectRgn(
+                    0, 0, clip_w, clip_h, d, d
+                )
+                ctypes.windll.user32.SetWindowRgn(
+                    ctypes.wintypes.HWND(hwnd), hrgn, True
+                )
+            except Exception:
+                pass
+
         self._clip_panel = _do_clip
         panel.after(200, _do_clip)
 
+    def _bind_panel_drag(self, widget):
+        """Bind dragging only to the header and all of its children."""
+        widget.bind("<Button-1>", self._panel_drag_start, add="+")
+        widget.bind("<B1-Motion>", self._panel_drag_move, add="+")
+        for child in widget.winfo_children():
+            self._bind_panel_drag(child)
+
     def _panel_drag_start(self, event):
-        self._drag_x = event.x
-        self._drag_y = event.y
+        self._drag_x = event.x_root - self._stats_panel.winfo_x()
+        self._drag_y = event.y_root - self._stats_panel.winfo_y()
 
     @staticmethod
     def _get_screen_bottom():
@@ -443,334 +1087,229 @@ class TerminalManager:
         return full.bottom
 
     def _panel_drag_move(self, event):
-        x = self._stats_panel.winfo_x() + event.x - self._drag_x
-        y = self._stats_panel.winfo_y() + event.y - self._drag_y
+        x = event.x_root - self._drag_x
+        y = event.y_root - self._drag_y
         pw = self._stats_panel.winfo_width()
         ph = self._stats_panel.winfo_height()
         sw = self._stats_panel.winfo_screenwidth()
         sb = self._get_screen_bottom()
-        snap = 40
-        if abs(x) < snap: x = 0
-        if abs(x + pw - sw) < snap: x = sw - pw
-        if abs(y) < snap: y = 0
-        if abs(y + ph - sb) < snap: y = sb - ph
+        snap = self.s(40)
+        if abs(x) < snap:
+            x = 0
+        if abs(x + pw - sw) < snap:
+            x = sw - pw
+        if abs(y) < snap:
+            y = 0
+        if abs(y + ph - sb) < snap:
+            y = sb - ph
         self._stats_panel.geometry(f"+{x}+{y}")
 
     def _on_stats_update(self, stats):
-        """Called by monitor thread → schedule UI update in main thread."""
+        """Called by monitor thread; marshal all widget work to tkinter."""
         self._stats = stats
-        self.root.after(0, lambda: [self._update_tray(stats), self._update_panel(stats)])
-
-    @staticmethod
-    def _draw_pill_bar(cv, w, h, fill_w, pct, anim_t=0):
-        """Pill-shaped progress bar with gradient segments + rounded caps at both ends."""
-        import colorsys
-        cv.delete("all")
-        r = h / 2; d = 2 * r
-
-        # ── Background pill (full width, grey) ──
-        cv.create_arc(0, 0, d, h, start=90, extent=180, fill=C.listbg, outline="")
-        cv.create_rectangle(r, 0, w - r, h, fill=C.listbg, outline="")
-        cv.create_arc(w - d, 0, w, h, start=270, extent=180, fill=C.listbg, outline="")
-
-        if fill_w <= 0:
-            return
-        fw = min(fill_w, w)
-
-        def _seg_color(t):
-            hue = (1.0 - t) * 0.33
-            rr, gg, bb = colorsys.hsv_to_rgb(hue, 0.88, 0.94)
-            return f"#{int(rr*255):02x}{int(gg*255):02x}{int(bb*255):02x}"
-
-        # ── Left cap (always drawn when fw > 0) ──
-        lcap_color = _seg_color(0)
-        cv.create_arc(0, 0, d, h, start=90, extent=180, fill=lcap_color, outline="")
-
-        # ── Gradient body (between the two caps) ──
-        body_end = max(r, fw - r) if fw > r else fw
-        n_seg = 12
-        seg_w = (body_end - r) / n_seg if body_end > r else 0
-        for i in range(n_seg):
-            if seg_w <= 0:
-                break
-            t_val = (i / (n_seg - 1)) * min(pct / 100.0, 1.0) if n_seg > 1 else min(pct / 100.0, 1.0)
-            c = _seg_color(t_val)
-            x0 = r + i * seg_w
-            x1 = r + (i + 1) * seg_w
-            cv.create_rectangle(x0, 0, x1, h, fill=c, outline="")
-
-        # ── Right cap ──
-        if fw > r:
-            last_t = min(pct / 100.0, 1.0)
-            rcap_color = _seg_color(last_t)
-            cx = fw - d
-            cv.create_arc(cx, 0, cx + d, h, start=270, extent=180, fill=rcap_color, outline="")
+        try:
+            self.root.after(
+                0, lambda: (self._update_tray(stats), self._update_panel(stats))
+            )
+        except tk.TclError:
+            pass
 
     def _animate_loop(self):
-        """Animate wave labels, status dots, and bar shimmer — no widget destruction."""
-        self._animation_phase = (self._animation_phase + 0.14) % (2 * math.pi)
+        """Animate only active visual accents; never rebuild card widgets."""
+        self._animation_phase = (self._animation_phase + 0.12) % (2 * math.pi)
         phase = self._animation_phase
+        self._frame_count = getattr(self, "_frame_count", 0) + 1
+        now = time.time()
 
-        # Update clock once per second (loop runs every 100ms)
-        self._frame_count = getattr(self, '_frame_count', 0) + 1
         if self._frame_count % 10 == 0:
             try:
                 import datetime
-                self._clock_label.config(text=datetime.datetime.now().strftime("%H:%M:%S"))
+                self._clock_label.configure(
+                    text=datetime.datetime.now().strftime("%H:%M:%S")
+                )
             except tk.TclError:
                 pass
 
-        for group in getattr(self, '_wave_labels', []):
-            if not group:
-                continue
-            total = len(group[0][4]) if len(group[0]) >= 5 else 0
-            win_start = 0
-            if total > MAX_VISIBLE_CHARS:
-                win_start = (self._frame_count // 30) % (total - MAX_VISIBLE_CHARS + 1)
-            for idx, entry in enumerate(group):
-                try:
-                    if len(entry) >= 5:
-                        label, base_color, offset, ci, _ = entry
-                    else:
-                        label, base_color, offset = entry
-                        ci = idx - total  # stagger after dir chars
-                    label.config(fg=self._pulse_color(base_color, phase - ci * offset))
-                    if total > MAX_VISIBLE_CHARS and len(entry) >= 5:
-                        if win_start <= ci < win_start + MAX_VISIBLE_CHARS:
-                            if not label.winfo_manager():
-                                label.pack(side="left")
-                        else:
-                            if label.winfo_manager():
-                                label.pack_forget()
-                except tk.TclError:
-                    pass
+        try:
+            cv = self._header_scan
+            width = cv.winfo_width()
+            height = max(1, cv.winfo_height())
+            cv.delete("all")
+            cv.create_line(0, height / 2, width, height / 2,
+                           fill=C.panel_border, width=1)
+            if width > 10:
+                scan_x = ((phase / (2 * math.pi)) * (width + self.s(70))) - self.s(35)
+                cv.create_line(
+                    scan_x - self.s(28), height / 2,
+                    scan_x + self.s(28), height / 2,
+                    fill=C.panel_focus, width=self.s(2),
+                )
+        except (AttributeError, tk.TclError):
+            pass
 
-        # Animated star dots: scale up/down for busy rows
-        for dot_cv, d, cx, cy in getattr(self, '_dot_canvases', []):
-            try:
-                dot_cv.delete("all")
-                sz=(d//2-4)*(0.85+0.15*math.sin(phase))
-                p=0.38
-                pts=[cx,cy-sz, cx+sz*p,cy-sz*p, cx+sz,cy, cx+sz*p,cy+sz*p,
-                     cx,cy+sz, cx-sz*p,cy+sz*p, cx-sz,cy, cx-sz*p,cy-sz*p]
-                col=self._pulse_color(C.green, phase)
-                dot_cv.create_polygon(pts,fill=col,outline="",smooth=True)
-                gs=self._pulse_color(C.green, phase-0.4)
-                sz2=sz+1
-                pts2=[cx,cy-sz2, cx+sz2*p,cy-sz2*p, cx+sz2,cy, cx+sz2*p,cy+sz2*p,
-                      cx,cy+sz2, cx-sz2*p,cy+sz2*p, cx-sz2,cy, cx-sz2*p,cy-sz2*p]
-                dot_cv.create_polygon(pts2,fill="",outline=gs,width=1,smooth=True)
-            except tk.TclError: pass
+        monotonic_now = time.monotonic()
+        for sid, deadline in list(self._done_until.items()):
+            if monotonic_now >= deadline:
+                self._done_until.pop(sid, None)
+                card = self._session_cards.get(sid)
+                if card and card.snapshot and card.snapshot.status != "busy":
+                    card.update_snapshot(card.snapshot, "idle")
 
-        # Bar animation: sawtooth fill on pill-shaped bars
-        for bar, bw, fw_base, bh, pct in getattr(self, '_wave_bars', []):
-            try:
-                t = (phase * 0.5) % 1
-                fw = max(3, int(fw_base * t))
-                TerminalManager._draw_pill_bar(bar, bw, bh, fw, pct)
-            except tk.TclError: pass
+        for card in list(self._session_cards.values()):
+            card.animate(phase, now)
 
-        self.root.after(100, self._animate_loop)
-
-    @staticmethod
-    def _pulse_color(base_hex, phase):
-        """Return a color that pulses between dim and near-white."""
-        r = int(base_hex[1:3], 16)
-        g = int(base_hex[3:5], 16)
-        b = int(base_hex[5:7], 16)
-        # Sine wave 0→1→0, squared for sharper peak, scaled to 0→170
-        intensity = math.sin(phase) ** 2
-        boost = int(170 * intensity)
-        r = min(255, r + boost)
-        g = min(255, g + boost)
-        b = min(255, b + boost)
-        return f"#{r:02x}{g:02x}{b:02x}"
+        try:
+            self._animation_after_id = self.root.after(100, self._animate_loop)
+        except tk.TclError:
+            self._animation_after_id = None
 
     def _update_panel(self, stats):
+        """Reconcile persistent SessionCard instances with monitor snapshots."""
         try:
-            if not self._stats_panel: return
-            self._stats_panel.winfo_exists()
-        except tk.TclError: return
-        # Anti-flicker: only fully rebuild when session list changes
-        id_key = tuple((s.session_id, s.status) for s in stats.sessions)
-        same = getattr(self, '_last_id_key', None) == id_key
-        self._last_id_key = id_key
-
-        s = self.s; body = self._panel_body
-
-        # Patch-only mode: update text in existing labels, skip full rebuild
-        if same and hasattr(self, '_bar_texts'):
-            for i, se in enumerate(stats.sessions):
-                if i < len(self._bar_texts):
-                    try: self._bar_texts[i].config(
-                        text=f"{se.context_pct:.1f}%")
-                    except tk.TclError: pass
+            if not self._stats_panel or not self._stats_panel.winfo_exists():
+                return
+        except tk.TclError:
             return
 
-        # Full rebuild
-        for w in body.winfo_children(): w.destroy()
-        self._wave_labels = []; self._wave_bars = []; self._dot_canvases = []
-        phase = self._animation_phase
+        self._active_summary.configure(text=f"● {stats.active_count} ACTIVE")
+        self._idle_summary.configure(text=f"○ {stats.idle_count} IDLE")
+        self._token_summary.configure(
+            text=f"{_fmt_tokens(stats.total_tokens)} TOKENS"
+        )
 
-        self._bar_texts = []
-        self._wave_bars = []
+        current_statuses = {s.session_id: s.status for s in stats.sessions}
+        cwd_by_id = {s.session_id: s.cwd for s in stats.sessions}
+        for sid, status in current_statuses.items():
+            previous = self._last_statuses.get(sid)
+            if previous == "busy" and status == "idle":
+                self._done_until[sid] = time.monotonic() + 5.0
+                cwd = cwd_by_id.get(sid, "")
+                if cwd:
+                    self.root.after(
+                        500, lambda target=cwd: self._bring_terminal_to_front(target)
+                    )
+            elif status == "busy":
+                self._done_until.pop(sid, None)
+        self._last_statuses = current_statuses
 
-        # Transitions — detect busy→idle and pop the right terminal to front
-        cur = {se.session_id: se.status for se in stats.sessions}
-        cwd_of = {se.session_id: se.cwd for se in stats.sessions}
-        for sid,st in cur.items():
-            pv = self._last_statuses.get(sid)
-            if pv == "busy" and st == "idle":
-                self._created_sessions.add(sid)
-                se_cwd = cwd_of.get(sid, "")
-                if se_cwd:
-                    self.root.after(500, lambda c=se_cwd: self._bring_terminal_to_front(cwd=c))
-        self._last_statuses = cur
-        tc = [si for si in list(self._created_sessions) if cur.get(si) != "busy"]
-        if tc:
-            def _cl():
-                [self._created_sessions.discard(x) for x in tc]
-                self.root.after(0,lambda: self._update_panel(self._stats) if self._stats else None)
-            self.root.after(5000, _cl)
+        visible = list(stats.sessions[:12])
+        wanted = {snapshot.session_id for snapshot in visible}
+        for sid in set(self._session_cards) - wanted:
+            card = self._session_cards.pop(sid)
+            card.destroy()
+            self._done_until.pop(sid, None)
+            if self._expanded_session_id == sid:
+                self._expanded_session_id = None
 
-        row = 2
-        for se in stats.sessions[:12]:
-            # Four-pointed star ✦, Canvas polygon, size varies for busy
-            d=s(16); r=d//2; cx,cy=r,r
-            dot=tk.Canvas(body,width=d,height=d,bg=C.base,highlightthickness=0)
-            dot.grid(row=row,column=0,sticky="nw",padx=(s(1),0),pady=(s(1),0))
-            def _star_pts(sz):
-                p=0.38
-                return [cx,cy-sz, cx+sz*p,cy-sz*p, cx+sz,cy, cx+sz*p,cy+sz*p,
-                        cx,cy+sz, cx-sz*p,cy+sz*p, cx-sz,cy, cx-sz*p,cy-sz*p]
-            if se.status=="busy":
-                sz=r-2
-                col=self._pulse_color(C.green, phase+row*0.3)
-                dot.create_polygon(_star_pts(sz),fill=col,outline="",smooth=True)
-                gcol=self._pulse_color(C.green, phase+row*0.3-0.4)
-                dot.create_polygon(_star_pts(sz+1),fill="",outline=gcol,width=1,smooth=True)
-                self._dot_canvases = getattr(self,'_dot_canvases',[])+[(dot, d, cx, cy)]
-            elif se.session_id in self._created_sessions:
-                dot.create_polygon(_star_pts(r-2),fill=C.yellow,outline="",smooth=True)
+        monotonic_now = time.monotonic()
+        for row, snapshot in enumerate(visible):
+            card = self._session_cards.get(snapshot.session_id)
+            if card is None:
+                card = SessionCard(
+                    self._panel_body,
+                    self.s,
+                    on_activate=self._bring_terminal_to_front,
+                    on_height_changed=self._schedule_panel_resize,
+                    on_hover_request=self._request_card_hover,
+                    on_mousewheel=self._scroll_panel,
+                )
+                self._session_cards[snapshot.session_id] = card
+            if snapshot.status == "busy":
+                display_state = "running"
+            elif self._done_until.get(snapshot.session_id, 0) > monotonic_now:
+                display_state = "done"
             else:
-                dot.create_polygon(_star_pts(r-6),fill="",outline=C.subtle,width=1,smooth=True)
+                display_state = "idle"
+            card.update_snapshot(snapshot, display_state)
+            card.grid_at(row)
 
-            info=tk.Frame(body,bg=C.base)
-            info.grid(row=row,column=1,sticky="ew",padx=(s(4),s(4)))
-            l1=tk.Frame(info,bg=C.base); l1.pack(fill="x")
+        if visible:
+            self._empty_label.grid_remove()
+        else:
+            self._empty_label.grid(
+                row=0, column=0, sticky="ew",
+                padx=self.s(8), pady=(self.s(16), self.s(18)),
+            )
 
-            left = tk.Frame(l1, bg=C.base)
-            left.pack(side="left")
+        self._schedule_panel_resize()
 
-            right = tk.Frame(l1, bg=C.base)
-            right.pack(side="right")
+    def _request_card_hover(self, session_id, hovered):
+        """Enforce the single-expanded-card rule."""
+        card = self._session_cards.get(session_id)
+        if card is None:
+            return
+        if hovered:
+            previous_id = self._expanded_session_id
+            if previous_id and previous_id != session_id:
+                previous = self._session_cards.get(previous_id)
+                if previous:
+                    previous.set_hovered(False, immediate=True)
+            self._expanded_session_id = session_id
+            card.set_hovered(True)
+        else:
+            card.set_hovered(False)
+            if self._expanded_session_id == session_id:
+                self._expanded_session_id = None
 
-            if se.status=="busy":
-                # Build all per-letter labels; hide overflow ones in animation loop
-                gr=[]
-                WAVE_TEXT = "#D0D0EE"
-                all_chars = list(se.short_dir)
-                for ci,ch in enumerate(all_chars):
-                    co=self._pulse_color(WAVE_TEXT,phase-ci*0.35)
-                    lb=tk.Label(left,text=ch,bg=C.base,fg=co,font=("Consolas",12,"bold"))
-                    if ci < MAX_VISIBLE_CHARS:
-                        lb.pack(side="left")
-                    gr.append((lb, WAVE_TEXT, 0.35, ci, all_chars))
-                self._wave_labels.append(gr)
-            else:
-                name = se.short_dir
-                if len(name) > 18:
-                    name = name[:17] + "…"
-                tk.Label(left,text=name,bg=C.base,fg=C.text,
-                         font=("Consolas",12,"bold")).pack(side="left")
-
-            if se.model and se.model!="?":
-                ms=se.model.replace("deepseek-v4-pro","DSv4").replace("claude-","")
-                tk.Label(left,text=f" [{ms}]",bg=C.base,fg=C.subtle,
-                         font=("Consolas",12)).pack(side="left",padx=(s(4),0))
-            if se.git_branch and se.git_branch.lower() not in ("master", "main"):
-                tk.Label(left,text=f" {se.git_branch}",bg=C.base,fg=C.subtle,
-                         font=("Consolas",12)).pack(side="left",padx=(s(2),0))
-
-            if se.status=="busy":
-                for ci,ch in enumerate("RUNNING"):
-                    co=self._pulse_color(C.green,phase-ci*0.4)
-                    lb=tk.Label(right,text=ch,bg=C.base,fg=co,font=("Consolas",12,"bold"))
-                    lb.pack(side="left"); gr.append((lb,C.green,0.4))
-            elif se.session_id in self._created_sessions:
-                for ci,ch in enumerate("DONE"):
-                    co=self._pulse_color(C.yellow,phase-ci*0.35)
-                    tk.Label(right,text=ch,bg=C.base,fg=co,font=("Consolas",12,"bold")).pack(side="left")
-
-            l2=tk.Frame(info,bg=C.base); l2.pack(fill="x")
-            pct=se.context_pct
-            bw,bh=s(200),s(7)
-            bar=tk.Canvas(l2,width=bw,height=bh,bg=C.base,highlightthickness=0)
-            fw=max(3,int(bw*max(0.005,pct/100)))
-            TerminalManager._draw_pill_bar(bar, bw, bh, fw, pct)
-            bar.pack(side="left",padx=(0,s(4)))
-            # Track bar for wave animation
-            if se.status == "busy":
-                self._wave_bars.append((bar, bw, fw, bh, pct))
-            cs=f"{pct:.1f}%"
-            bt = tk.Label(l2,text=f"{cs}",bg=C.base,fg=C.sub,font=("Consolas",12))
-            bt.pack(side="left")
-            self._bar_texts.append(bt)
-
-            # Recursively bind click-to-jump on every widget in this row
-            def _bind_recursive(w, cwd):
-                w.bind("<Button-1>", lambda e, c=cwd: self._bring_terminal_to_front(cwd=c))
-                try:
-                    for child in w.winfo_children():
-                        _bind_recursive(child, cwd)
-                except tk.TclError:
-                    pass
-            _bind_recursive(info, se.cwd)
-            dot.bind("<Button-1>", lambda e, c=se.cwd: self._bring_terminal_to_front(cwd=c))
-
-            row+=1
-
-        if not stats.sessions:
-            tk.Label(body,text="No active sessions",bg=C.base,fg=C.subtle,font=("Segoe UI",9)).grid(row=3,column=0,columnspan=2)
-        body.grid_columnconfigure(1,weight=1)
-
-        # Resize — pinned edge stays fixed, the other edge expands
-        new_w = self.s(350)
-        pad = self.s(6)
-        body_y = getattr(self, '_body_y0', pad + self.s(26) + self.s(2))
-
-        # Measure actual body content height
-        body.update_idletasks()
-        body_req = body.winfo_reqheight()
-        needed = max(self.s(80), body_y + pad + body_req)
-
-        is_first = not hasattr(self, '_panel_h')
-        prev_h = getattr(self, '_panel_h', needed)
+    def _scroll_panel(self, delta):
+        """Scroll the card viewport while preserving the floating panel position."""
         try:
+            direction = -1 if delta > 0 else 1
+            self._panel_viewport.yview_scroll(direction, "units")
+        except (AttributeError, tk.TclError):
+            pass
+
+    def _schedule_panel_resize(self):
+        """Coalesce rapid card-height changes into one geometry update."""
+        if not self._stats_panel:
+            return
+        if self._panel_resize_after_id is not None:
+            try:
+                self.root.after_cancel(self._panel_resize_after_id)
+            except tk.TclError:
+                pass
+        try:
+            self._panel_resize_after_id = self.root.after(
+                15, self._resize_stats_panel
+            )
+        except tk.TclError:
+            self._panel_resize_after_id = None
+
+    def _resize_stats_panel(self):
+        self._panel_resize_after_id = None
+        try:
+            body = self._panel_body
+            body.update_idletasks()
+            body_req = body.winfo_reqheight()
+            width = self.s(430)
+            pad = self._panel_pad
+            needed = max(
+                self.s(104), self._body_y0 + pad + max(body_req, self.s(30))
+            )
+            screen_bottom = self._get_screen_bottom()
+            needed = min(needed, max(self.s(104), screen_bottom - self.s(8)))
+
             x = self._stats_panel.winfo_x()
             y = self._stats_panel.winfo_y()
-
-            if is_first:
-                sw = self._stats_panel.winfo_screenwidth()
-                x = sw // 2 - new_w // 2
+            previous_h = getattr(self, "_panel_h", needed)
+            bottom_pinned = abs((y + previous_h) - screen_bottom) < self.s(60)
+            top_pinned = y <= self.s(5)
+            if bottom_pinned:
+                y = max(0, screen_bottom - needed)
+            elif top_pinned:
                 y = 0
             else:
-                sb = self._get_screen_bottom()
-                if (y + prev_h - sb) > -60 and abs(y + prev_h - sb) < 60:
-                    y = max(0, sb - needed)
-                elif y <= 5:
-                    y = 0
+                y = max(0, min(y, screen_bottom - needed))
 
-            self._stats_panel.geometry(f"{new_w}x{needed}+{x}+{y}")
-        except tk.TclError: pass
-        self._panel_h = needed
-
-        # Reposition body + re-clip
-        try:
-            self._panel_body.place_configure(height=needed - body_y - pad)
-        except tk.TclError: pass
-        if hasattr(self, '_clip_panel'):
-            self.root.after(50, self._clip_panel)
+            self._stats_panel.geometry(f"{width}x{needed}+{x}+{y}")
+            viewport_h = max(self.s(30), needed - self._body_y0 - pad)
+            self._panel_viewport.place_configure(height=viewport_h)
+            self._panel_viewport.configure(scrollregion=self._panel_viewport.bbox("all"))
+            self._panel_h = needed
+            if hasattr(self, "_clip_panel"):
+                self.root.after(35, self._clip_panel)
+        except (AttributeError, tk.TclError):
+            pass
 
     def _update_tray(self, stats):
         """Refresh tray tooltip with live stats."""
@@ -878,13 +1417,37 @@ class TerminalManager:
             pass
 
     def _quit_app(self):
-        """Fully exit the application."""
+        """Fully exit and cancel monitor/card callbacks safely."""
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.root.after(0, self._quit_app)
+            except tk.TclError:
+                pass
+            return
+        try:
+            self._monitor.stop()
+        except Exception:
+            pass
+        for card in list(self._session_cards.values()):
+            card.destroy()
+        self._session_cards.clear()
+        for after_id in (self._panel_resize_after_id, self._animation_after_id):
+            if after_id is not None:
+                try:
+                    self.root.after_cancel(after_id)
+                except tk.TclError:
+                    pass
+        self._panel_resize_after_id = None
+        self._animation_after_id = None
         try:
             if self._tray_icon:
                 self._tray_icon.stop()
         except Exception:
             pass
-        self.root.destroy()
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
     def _restart_app(self):
         """Restart the application — spawn new process, then quit."""
