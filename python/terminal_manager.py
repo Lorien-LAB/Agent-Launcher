@@ -1,0 +1,1155 @@
+"""
+Agent Launcher - UI for Claude Code, Hermes & Terminal customization
+"""
+import ctypes
+import json
+import math
+import os
+import subprocess
+import threading
+import tkinter as tk
+from tkinter import ttk
+
+import pystray
+from PIL import Image
+
+from session_monitor import SessionMonitor, _fmt_tokens, _fmt_cost
+
+# Enable DPI awareness
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
+
+def get_dpi_scale() -> float:
+    try:
+        hdc = ctypes.windll.user32.GetDC(0)
+        dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)
+        ctypes.windll.user32.ReleaseDC(0, hdc)
+        return dpi / 96.0
+    except Exception:
+        return 1.0
+
+
+WT_SETTINGS_PATH = os.path.join(
+    os.environ["LOCALAPPDATA"],
+    "Packages",
+    "Microsoft.WindowsTerminal_8wekyb3d8bbwe",
+    "LocalState",
+    "settings.json",
+)
+BASE_DIRS = [
+    r"D:\Quantitative Trading",
+    r"D:\University\Kaggle",
+    r"D:\Obsidian_Lorien_Lab",
+    r"D:\University\比赛\AFAC2026挑战组-赛题一：市场参与者交易行为识别与资金流向分析",
+    r"C:\Users\Lorien\terminal-manager",
+]
+HOME_DIR = os.path.expanduser("~")
+CLAUDE_PATH = "C:/Users/Lorien/.local/bin/claude.exe"
+CLAUDE_ARGS = "--dangerously-skip-permissions"
+HERMES_PATH = "C:/Users/Lorien/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe"
+
+
+MAX_VISIBLE_CHARS = 16  # max dir-name characters shown at once; overflow scrolls
+
+# ─── Colors ──────────────────────────────────────────
+class C:
+    base    = "#1E1E2E"
+    card    = "#181825"
+    listbg  = "#313244"
+    border  = "#45475A"
+    subtle  = "#585B70"
+    text    = "#FFFFFF"
+    sub     = "#CCCCDD"
+    blue    = "#89B4FA"
+    green   = "#A6E3A1"
+    yellow  = "#F9E2AF"
+    mauve   = "#CBA6F7"
+
+
+
+def scan_directories():
+    """Return tree: [(label, path, parent_iid)] where parent_iid=None means root.
+    Treeview iids are assigned during build."""
+    items = [("🏠  ~ (home)", HOME_DIR, None)]
+    for base in BASE_DIRS:
+        if not os.path.isdir(base):
+            continue
+        try:
+            subs = sorted(
+                d for d in os.listdir(base)
+                if not d.startswith(".") and os.path.isdir(os.path.join(base, d))
+            )
+            if not subs:
+                continue
+            parent_name = os.path.basename(base)
+            # Pass the base label as a signal for the tree builder
+            items.append((f"▸  {parent_name}", base, "PARENT"))
+            for sub in subs:
+                items.append((f"📁  {sub}", os.path.join(base, sub), None))
+        except PermissionError:
+            pass
+    return items
+
+
+def load_wt_settings():
+    try:
+        with open(WT_SETTINGS_PATH, "r", encoding="utf-8-sig") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_wt_settings(data):
+    with open(WT_SETTINGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def get_current_mode():
+    wt = load_wt_settings()
+    d = wt.get("profiles", {}).get("defaults", {})
+    if d.get("useAcrylic"):
+        return "acrylic", int(d.get("acrylicOpacity", 0.33) * 100)
+    elif "opacity" in d:
+        return "opacity", d["opacity"]
+    return "none", 100
+
+
+def apply_background(mode, value):
+    wt = load_wt_settings()
+    wt.setdefault("profiles", {}).setdefault("defaults", {})
+    d = wt["profiles"]["defaults"]
+    for k in ("useAcrylic", "acrylicOpacity", "opacity"):
+        d.pop(k, None)
+    if mode == "acrylic":
+        d["useAcrylic"] = True
+        d["acrylicOpacity"] = value / 100.0
+    elif mode == "opacity":
+        d["opacity"] = value
+    save_wt_settings(wt)
+
+
+# ── Terminal-window handle tracking ─────────────────
+# Maps normalized cwd → HWND for pop-to-front.
+# Uses "snapshot diff" — enumerate all WT windows before and after launch,
+# the new one is the difference.  (PID-based doesn't work: wt.exe is a launcher
+# that talks to WindowsTerminal.exe and then exits.)
+_terminal_hwnds: dict = {}   # norm_cwd → int hwnd
+_HWND_LOCK = threading.Lock()
+
+WT_CLASS = "CASCADIA_HOSTING_WINDOW_CLASS"
+
+
+def _snapshot_wt_hwnds() -> set:
+    """Return a set of HWNDs for all CASCADIA_HOSTING_WINDOW_CLASS windows."""
+    seen = set()
+    try:
+        import ctypes
+        @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_long, ctypes.c_long)
+        def _enum(hwnd, _):
+            buf = ctypes.create_unicode_buffer(64)
+            ctypes.windll.user32.GetClassNameW(hwnd, buf, 63)
+            if buf.value == WT_CLASS:
+                seen.add(hwnd)
+            return 1
+        ctypes.windll.user32.EnumWindows(_enum, 0)
+    except Exception:
+        pass
+    return seen
+
+
+def launch_in_terminal(dir_path, exe_path, args, title):
+    """Open exe in a new Windows Terminal window. Track HWND for pop-to-front.
+
+    Uses a temporary PowerShell script to avoid argument-quoting hell
+    (wt -Command with semicolons/quotes gets mangled by WT's parser).
+    """
+    if not os.path.isdir(dir_path):
+        return False
+    try:
+        dir_tag = os.path.basename(dir_path)
+        full_title = f"{title} — {dir_tag}"
+        norm_cwd = os.path.normpath(dir_path).lower()
+
+        # Write a temp .ps1 — no quoting issues because pwsh reads the file directly
+        safe_title = full_title.replace("'", "''")
+        safe_exe = exe_path.replace("'", "''")
+        script = (
+            f"$Host.UI.RawUI.WindowTitle = '{safe_title}'{os.linesep}"
+            f"& '{safe_exe}' {args}{os.linesep}"
+        )
+        tmp = os.path.join(
+            os.environ.get("TEMP", os.path.expanduser("~")),
+            f"launch_{os.urandom(6).hex()}.ps1")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(script)
+
+        before = _snapshot_wt_hwnds()
+
+        subprocess.Popen(
+            ["wt", "-w", "new", "-d", dir_path, "--title", full_title,
+             "pwsh", "-NoExit", "-File", tmp],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+
+        # Cleanup temp file after a few seconds
+        def _cleanup():
+            time.sleep(5)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        threading.Thread(target=_cleanup, daemon=True, name="tmp-cleanup").start()
+
+        # Track the new HWND
+        def _track():
+            for _ in range(40):
+                time.sleep(0.1)
+                after = _snapshot_wt_hwnds()
+                new_hwnds = after - before
+                if new_hwnds:
+                    with _HWND_LOCK:
+                        _terminal_hwnds[norm_cwd] = new_hwnds.pop()
+                    return
+        threading.Thread(target=_track, daemon=True, name="hwnd-track").start()
+        return True
+    except Exception:
+        return False
+
+
+def launch_claude(dir_path):
+    return launch_in_terminal(dir_path, CLAUDE_PATH, CLAUDE_ARGS, "Claude Code")
+
+
+def launch_hermes(dir_path):
+    return launch_in_terminal(dir_path, HERMES_PATH, "", "Hermes")
+
+
+# ─── Rounded Button (Canvas-based, lightweight, stable) ──
+def _round_rect(canvas, x1, y1, x2, y2, r, **kw):
+    """Draw a rounded rectangle using thick rounded lines (proper anti-alias)."""
+    r = min(r, (x2 - x1) // 2, (y2 - y1) // 2)
+    d = 2 * r
+    # Center rectangle fill
+    canvas.create_rectangle(x1+r, y1, x2-r, y2, **kw)
+    # Top and bottom strips
+    canvas.create_rectangle(x1, y1+r, x2, y2-r, **kw)
+    # Four corner arcs (pieslice = filled quarter-circle)
+    canvas.create_arc(x1, y1, x1+d, y1+d, start=90, extent=90, style="pieslice", **kw)
+    canvas.create_arc(x2-d, y1, x2, y1+d, start=0, extent=90, style="pieslice", **kw)
+    canvas.create_arc(x2-d, y2-d, x2, y2, start=270, extent=90, style="pieslice", **kw)
+    canvas.create_arc(x1, y2-d, x1+d, y2, start=180, extent=90, style="pieslice", **kw)
+    # Outline — stroked arcs for crisp edges
+    if "outline" in kw and kw.get("outline"):
+        ol_color = kw["outline"]
+        canvas.create_arc(x1, y1, x1+d, y1+d, start=90, extent=90, style="arc", outline=ol_color)
+        canvas.create_arc(x2-d, y1, x2, y1+d, start=0, extent=90, style="arc", outline=ol_color)
+        canvas.create_arc(x2-d, y2-d, x2, y2, start=270, extent=90, style="arc", outline=ol_color)
+        canvas.create_arc(x1, y2-d, x1+d, y2, start=180, extent=90, style="arc", outline=ol_color)
+        canvas.create_line(x1+r, y1, x2-r, y1, fill=ol_color)
+        canvas.create_line(x1+r, y2, x2-r, y2, fill=ol_color)
+        canvas.create_line(x1, y1+r, x1, y2-r, fill=ol_color)
+        canvas.create_line(x2, y1+r, x2, y2-r, fill=ol_color)
+
+
+class NeonButton(tk.Canvas):
+    """Canvas button: dark fill + colored glow border + text."""
+
+    def __init__(self, parent, text, bg, glow, fg="#F5F5FF",
+                 command=None, radius=20, font=("Segoe UI", 12, "bold"), **kw):
+        super().__init__(parent, highlightthickness=0, cursor="hand2", bg=C.base, **kw)
+        self._text = text
+        self._bg = bg
+        self._glow = glow
+        self._fg = fg
+        self._cmd = command
+        self._r = radius
+        self._font = font
+        self._hovered = False
+
+        self.bind("<Configure>", self._draw)
+        self.bind("<Enter>", lambda e: self._set_hover(True))
+        self.bind("<Leave>", lambda e: self._set_hover(False))
+        self.bind("<Button-1>", lambda e: self._cmd())
+
+    def _set_hover(self, h):
+        self._hovered = h
+        self._draw()
+
+    def _draw(self, event=None):
+        self.delete("all")
+        w = self.winfo_width()
+        h = self.winfo_height()
+        if w < 8 or h < 8:
+            return
+        r = self._r
+
+        # Background fill
+        self.create_rectangle(0, 0, w, h, fill=C.base, outline="", width=0)
+
+        # Glow border (thick, low alpha look — simulate with layered outlines)
+        colors = [self._glow, self._glow, self._glow] if self._hovered else []
+        widths = [3, 2, 1]
+
+        # Outer glow (larger, more transparent via darker blend)
+        # Hover: extra glow ring
+        if self._hovered:
+            _round_rect(self, 1, 1, w-1, h-1, r, fill="", outline=self._glow)
+
+        # Base fill
+        fill_color = self._glow if self._hovered else self._bg
+        _round_rect(self, 3, 3, w-3, h-3, r-1, fill=fill_color, outline="")
+
+        # Text
+        self.create_text(w//2, h//2, text=self._text, fill=self._fg,
+                          font=self._font)
+
+
+# ─── Main App ────────────────────────────────────────
+class TerminalManager:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Agent Launcher")
+
+        self.scale = get_dpi_scale()
+        self.root.tk.call("tk", "scaling", self.scale)
+        self.root.configure(bg=C.base)
+
+        self.root.resizable(True, True)
+
+        base_w, base_h = 300, 420
+        self.w = max(1, round(base_w * self.scale))
+        self.h = max(1, round(base_h * self.scale))
+        self.root.minsize(self.w, self.h)
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        x = (sw - self.w) // 2
+        y = (sh - self.h) // 2
+        self.root.geometry(f"{self.w}x{self.h}+{x}+{y}")
+
+        self.dirs = scan_directories()
+        self.build_ui()
+        self.load_current_settings()
+
+        # ── System Tray ──
+        self._tray = None
+        self._tray_icon = None
+        self._monitor = SessionMonitor()
+        self._monitor.on_update(self._on_stats_update)
+        self._monitor.scan()  # initial scan
+        self._monitor.start()
+        self._stats_panel = None  # persistent stats panel
+        self._animation_phase = 0  # 0.0 → 1.0 cycling for busy pulse
+        self._animating = False
+        self._last_statuses = {}  # session_id → old status for transition detection
+        self._created_sessions = set()  # sessions that just appeared
+        self._create_stats_panel()
+        self.root.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
+        self.root.after(100, self._create_tray)
+        self.root.after(200, self._animate_loop)
+
+    def _create_stats_panel(self):
+        """Create a semi-transparent floating panel with rounded corners."""
+        if self._stats_panel is not None: return
+        s = self.s
+
+        panel = tk.Toplevel(self.root)
+        panel.title("Session Monitor")
+        panel.overrideredirect(True)
+        panel.attributes("-topmost", True)
+        panel.attributes("-alpha", 0.92)
+        panel.configure(bg=C.base)
+
+        pw, ph = s(350), s(80)
+        sw = panel.winfo_screenwidth()
+        panel.geometry(f"{pw}x{ph}+{sw // 2 - pw // 2}+0")
+
+        R = s(18)
+        pad = s(6)
+
+        # Drag
+        panel.bind("<Button-1>", self._panel_drag_start)
+        panel.bind("<B1-Motion>", self._panel_drag_move)
+
+        # Header line — flat labels on panel, no extra frame
+        hdr_y = pad
+        tk.Label(panel, text="Session Monitor", bg=C.base, fg=C.text,
+                 font=("Segoe UI", 12, "bold")).place(x=pad + s(4), y=hdr_y)
+        self._clock_label = tk.Label(panel, text="--:--:--", bg=C.base, fg=C.sub,
+                                     font=("Consolas", 13, "bold"))
+        self._clock_label.place(relx=1, x=-pad - s(4), y=hdr_y, anchor="ne")
+
+        # Mauve separator line
+        tk.Frame(panel, height=s(1), bg=C.mauve).place(
+            x=pad, y=hdr_y + s(22), relwidth=1, width=-2 * pad)
+
+        # Content — flat frame directly on panel
+        body_y = hdr_y + s(24) + s(2)
+        content = tk.Frame(panel, bg=C.base)
+        content.place(x=pad, y=body_y, relwidth=1, width=-2 * pad)
+        self._panel_body = content
+        self._body_y0 = body_y
+        self._panel_r = R
+        self._stats_panel = panel
+
+        # Round-corner clip via GetWindowRect → guaranteed physical pixels
+        def _do_clip():
+            try:
+                import ctypes.wintypes
+                hwnd = int(panel.frame(), 16)
+                rect = ctypes.wintypes.RECT()
+                ctypes.windll.user32.GetWindowRect(ctypes.wintypes.HWND(hwnd), ctypes.byref(rect))
+                pw = rect.right - rect.left
+                ph = rect.bottom - rect.top
+                if pw < 10 or ph < 10: return
+                d = R * 2
+                hrgn = ctypes.windll.gdi32.CreateRoundRectRgn(0, 0, pw, ph, d, d)
+                ctypes.windll.user32.SetWindowRgn(ctypes.wintypes.HWND(hwnd), hrgn, True)
+            except Exception: pass
+        self._clip_panel = _do_clip
+        panel.after(200, _do_clip)
+
+    def _panel_drag_start(self, event):
+        self._drag_x = event.x
+        self._drag_y = event.y
+
+    @staticmethod
+    def _get_screen_bottom():
+        """Return the effective bottom y (screen height minus taskbar gap).
+        Handles both permanent taskbar and auto-hide via SHAppBarMessage."""
+        import ctypes.wintypes
+        class RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+        work = RECT()
+        full = RECT()
+        ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)
+        ctypes.windll.user32.GetWindowRect(
+            ctypes.windll.user32.GetDesktopWindow(), ctypes.byref(full))
+        visible_tb = full.bottom - work.bottom  # 0 when auto-hide
+        if visible_tb > 0:
+            return work.bottom
+        try:
+            state = ctypes.windll.shell32.SHAppBarMessage(0x00000004, None)
+            if state & 1:
+                return full.bottom - 4  # auto-hide: 4px trigger gap
+        except Exception:
+            pass
+        return full.bottom
+
+    def _panel_drag_move(self, event):
+        x = self._stats_panel.winfo_x() + event.x - self._drag_x
+        y = self._stats_panel.winfo_y() + event.y - self._drag_y
+        pw = self._stats_panel.winfo_width()
+        ph = self._stats_panel.winfo_height()
+        sw = self._stats_panel.winfo_screenwidth()
+        sb = self._get_screen_bottom()
+        snap = 40
+        if abs(x) < snap: x = 0
+        if abs(x + pw - sw) < snap: x = sw - pw
+        if abs(y) < snap: y = 0
+        if abs(y + ph - sb) < snap: y = sb - ph
+        self._stats_panel.geometry(f"+{x}+{y}")
+
+    def _on_stats_update(self, stats):
+        """Called by monitor thread → schedule UI update in main thread."""
+        self._stats = stats
+        self.root.after(0, lambda: [self._update_tray(stats), self._update_panel(stats)])
+
+    @staticmethod
+    def _draw_pill_bar(cv, w, h, fill_w, pct, anim_t=0):
+        """Pill-shaped progress bar with gradient segments + rounded caps at both ends."""
+        import colorsys
+        cv.delete("all")
+        r = h / 2; d = 2 * r
+
+        # ── Background pill (full width, grey) ──
+        cv.create_arc(0, 0, d, h, start=90, extent=180, fill=C.listbg, outline="")
+        cv.create_rectangle(r, 0, w - r, h, fill=C.listbg, outline="")
+        cv.create_arc(w - d, 0, w, h, start=270, extent=180, fill=C.listbg, outline="")
+
+        if fill_w <= 0:
+            return
+        fw = min(fill_w, w)
+
+        def _seg_color(t):
+            hue = (1.0 - t) * 0.33
+            rr, gg, bb = colorsys.hsv_to_rgb(hue, 0.88, 0.94)
+            return f"#{int(rr*255):02x}{int(gg*255):02x}{int(bb*255):02x}"
+
+        # ── Left cap (always drawn when fw > 0) ──
+        lcap_color = _seg_color(0)
+        cv.create_arc(0, 0, d, h, start=90, extent=180, fill=lcap_color, outline="")
+
+        # ── Gradient body (between the two caps) ──
+        body_end = max(r, fw - r) if fw > r else fw
+        n_seg = 12
+        seg_w = (body_end - r) / n_seg if body_end > r else 0
+        for i in range(n_seg):
+            if seg_w <= 0:
+                break
+            t_val = (i / (n_seg - 1)) * min(pct / 100.0, 1.0) if n_seg > 1 else min(pct / 100.0, 1.0)
+            c = _seg_color(t_val)
+            x0 = r + i * seg_w
+            x1 = r + (i + 1) * seg_w
+            cv.create_rectangle(x0, 0, x1, h, fill=c, outline="")
+
+        # ── Right cap ──
+        if fw > r:
+            last_t = min(pct / 100.0, 1.0)
+            rcap_color = _seg_color(last_t)
+            cx = fw - d
+            cv.create_arc(cx, 0, cx + d, h, start=270, extent=180, fill=rcap_color, outline="")
+
+    def _animate_loop(self):
+        """Animate wave labels, status dots, and bar shimmer — no widget destruction."""
+        self._animation_phase = (self._animation_phase + 0.14) % (2 * math.pi)
+        phase = self._animation_phase
+
+        # Update clock once per second (loop runs every 100ms)
+        self._frame_count = getattr(self, '_frame_count', 0) + 1
+        if self._frame_count % 10 == 0:
+            try:
+                import datetime
+                self._clock_label.config(text=datetime.datetime.now().strftime("%H:%M:%S"))
+            except tk.TclError:
+                pass
+
+        for group in getattr(self, '_wave_labels', []):
+            if not group:
+                continue
+            total = len(group[0][4]) if len(group[0]) >= 5 else 0
+            win_start = 0
+            if total > MAX_VISIBLE_CHARS:
+                win_start = (self._frame_count // 30) % (total - MAX_VISIBLE_CHARS + 1)
+            for idx, entry in enumerate(group):
+                try:
+                    if len(entry) >= 5:
+                        label, base_color, offset, ci, _ = entry
+                    else:
+                        label, base_color, offset = entry
+                        ci = idx - total  # stagger after dir chars
+                    label.config(fg=self._pulse_color(base_color, phase - ci * offset))
+                    if total > MAX_VISIBLE_CHARS and len(entry) >= 5:
+                        if win_start <= ci < win_start + MAX_VISIBLE_CHARS:
+                            if not label.winfo_manager():
+                                label.pack(side="left")
+                        else:
+                            if label.winfo_manager():
+                                label.pack_forget()
+                except tk.TclError:
+                    pass
+
+        # Animated star dots: scale up/down for busy rows
+        for dot_cv, d, cx, cy in getattr(self, '_dot_canvases', []):
+            try:
+                dot_cv.delete("all")
+                sz=(d//2-4)*(0.85+0.15*math.sin(phase))
+                p=0.38
+                pts=[cx,cy-sz, cx+sz*p,cy-sz*p, cx+sz,cy, cx+sz*p,cy+sz*p,
+                     cx,cy+sz, cx-sz*p,cy+sz*p, cx-sz,cy, cx-sz*p,cy-sz*p]
+                col=self._pulse_color(C.green, phase)
+                dot_cv.create_polygon(pts,fill=col,outline="",smooth=True)
+                gs=self._pulse_color(C.green, phase-0.4)
+                sz2=sz+1
+                pts2=[cx,cy-sz2, cx+sz2*p,cy-sz2*p, cx+sz2,cy, cx+sz2*p,cy+sz2*p,
+                      cx,cy+sz2, cx-sz2*p,cy+sz2*p, cx-sz2,cy, cx-sz2*p,cy-sz2*p]
+                dot_cv.create_polygon(pts2,fill="",outline=gs,width=1,smooth=True)
+            except tk.TclError: pass
+
+        # Bar animation: sawtooth fill on pill-shaped bars
+        for bar, bw, fw_base, bh, pct in getattr(self, '_wave_bars', []):
+            try:
+                t = (phase * 0.5) % 1
+                fw = max(3, int(fw_base * t))
+                TerminalManager._draw_pill_bar(bar, bw, bh, fw, pct)
+            except tk.TclError: pass
+
+        self.root.after(100, self._animate_loop)
+
+    @staticmethod
+    def _pulse_color(base_hex, phase):
+        """Return a color that pulses between dim and near-white."""
+        r = int(base_hex[1:3], 16)
+        g = int(base_hex[3:5], 16)
+        b = int(base_hex[5:7], 16)
+        # Sine wave 0→1→0, squared for sharper peak, scaled to 0→170
+        intensity = math.sin(phase) ** 2
+        boost = int(170 * intensity)
+        r = min(255, r + boost)
+        g = min(255, g + boost)
+        b = min(255, b + boost)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _update_panel(self, stats):
+        try:
+            if not self._stats_panel: return
+            self._stats_panel.winfo_exists()
+        except tk.TclError: return
+        # Anti-flicker: only fully rebuild when session list changes
+        id_key = tuple((s.session_id, s.status) for s in stats.sessions)
+        same = getattr(self, '_last_id_key', None) == id_key
+        self._last_id_key = id_key
+
+        s = self.s; body = self._panel_body
+
+        # Patch-only mode: update text in existing labels, skip full rebuild
+        if same and hasattr(self, '_bar_texts'):
+            for i, se in enumerate(stats.sessions):
+                if i < len(self._bar_texts):
+                    try: self._bar_texts[i].config(
+                        text=f"{se.context_pct:.1f}%")
+                    except tk.TclError: pass
+            return
+
+        # Full rebuild
+        for w in body.winfo_children(): w.destroy()
+        self._wave_labels = []; self._wave_bars = []; self._dot_canvases = []
+        phase = self._animation_phase
+
+        self._bar_texts = []
+        self._wave_bars = []
+
+        # Transitions — detect busy→idle and pop the right terminal to front
+        cur = {se.session_id: se.status for se in stats.sessions}
+        cwd_of = {se.session_id: se.cwd for se in stats.sessions}
+        for sid,st in cur.items():
+            pv = self._last_statuses.get(sid)
+            if pv == "busy" and st == "idle":
+                self._created_sessions.add(sid)
+                se_cwd = cwd_of.get(sid, "")
+                if se_cwd:
+                    self.root.after(500, lambda c=se_cwd: self._bring_terminal_to_front(cwd=c))
+        self._last_statuses = cur
+        tc = [si for si in list(self._created_sessions) if cur.get(si) != "busy"]
+        if tc:
+            def _cl():
+                [self._created_sessions.discard(x) for x in tc]
+                self.root.after(0,lambda: self._update_panel(self._stats) if self._stats else None)
+            self.root.after(5000, _cl)
+
+        row = 2
+        for se in stats.sessions[:12]:
+            # Four-pointed star ✦, Canvas polygon, size varies for busy
+            d=s(16); r=d//2; cx,cy=r,r
+            dot=tk.Canvas(body,width=d,height=d,bg=C.base,highlightthickness=0)
+            dot.grid(row=row,column=0,sticky="nw",padx=(s(1),0),pady=(s(1),0))
+            def _star_pts(sz):
+                p=0.38
+                return [cx,cy-sz, cx+sz*p,cy-sz*p, cx+sz,cy, cx+sz*p,cy+sz*p,
+                        cx,cy+sz, cx-sz*p,cy+sz*p, cx-sz,cy, cx-sz*p,cy-sz*p]
+            if se.status=="busy":
+                sz=r-2
+                col=self._pulse_color(C.green, phase+row*0.3)
+                dot.create_polygon(_star_pts(sz),fill=col,outline="",smooth=True)
+                gcol=self._pulse_color(C.green, phase+row*0.3-0.4)
+                dot.create_polygon(_star_pts(sz+1),fill="",outline=gcol,width=1,smooth=True)
+                self._dot_canvases = getattr(self,'_dot_canvases',[])+[(dot, d, cx, cy)]
+            elif se.session_id in self._created_sessions:
+                dot.create_polygon(_star_pts(r-2),fill=C.yellow,outline="",smooth=True)
+            else:
+                dot.create_polygon(_star_pts(r-6),fill="",outline=C.subtle,width=1,smooth=True)
+
+            info=tk.Frame(body,bg=C.base)
+            info.grid(row=row,column=1,sticky="ew",padx=(s(4),s(4)))
+            l1=tk.Frame(info,bg=C.base); l1.pack(fill="x")
+
+            left = tk.Frame(l1, bg=C.base)
+            left.pack(side="left")
+
+            right = tk.Frame(l1, bg=C.base)
+            right.pack(side="right")
+
+            if se.status=="busy":
+                # Build all per-letter labels; hide overflow ones in animation loop
+                gr=[]
+                WAVE_TEXT = "#D0D0EE"
+                all_chars = list(se.short_dir)
+                for ci,ch in enumerate(all_chars):
+                    co=self._pulse_color(WAVE_TEXT,phase-ci*0.35)
+                    lb=tk.Label(left,text=ch,bg=C.base,fg=co,font=("Consolas",12,"bold"))
+                    if ci < MAX_VISIBLE_CHARS:
+                        lb.pack(side="left")
+                    gr.append((lb, WAVE_TEXT, 0.35, ci, all_chars))
+                self._wave_labels.append(gr)
+            else:
+                name = se.short_dir
+                if len(name) > 18:
+                    name = name[:17] + "…"
+                tk.Label(left,text=name,bg=C.base,fg=C.text,
+                         font=("Consolas",12,"bold")).pack(side="left")
+
+            if se.model and se.model!="?":
+                ms=se.model.replace("deepseek-v4-pro","DSv4").replace("claude-","")
+                tk.Label(left,text=f" [{ms}]",bg=C.base,fg=C.subtle,
+                         font=("Consolas",12)).pack(side="left",padx=(s(4),0))
+            if se.git_branch and se.git_branch.lower() not in ("master", "main"):
+                tk.Label(left,text=f" {se.git_branch}",bg=C.base,fg=C.subtle,
+                         font=("Consolas",12)).pack(side="left",padx=(s(2),0))
+
+            if se.status=="busy":
+                for ci,ch in enumerate("RUNNING"):
+                    co=self._pulse_color(C.green,phase-ci*0.4)
+                    lb=tk.Label(right,text=ch,bg=C.base,fg=co,font=("Consolas",12,"bold"))
+                    lb.pack(side="left"); gr.append((lb,C.green,0.4))
+            elif se.session_id in self._created_sessions:
+                for ci,ch in enumerate("DONE"):
+                    co=self._pulse_color(C.yellow,phase-ci*0.35)
+                    tk.Label(right,text=ch,bg=C.base,fg=co,font=("Consolas",12,"bold")).pack(side="left")
+
+            l2=tk.Frame(info,bg=C.base); l2.pack(fill="x")
+            pct=se.context_pct
+            bw,bh=s(200),s(7)
+            bar=tk.Canvas(l2,width=bw,height=bh,bg=C.base,highlightthickness=0)
+            fw=max(3,int(bw*max(0.005,pct/100)))
+            TerminalManager._draw_pill_bar(bar, bw, bh, fw, pct)
+            bar.pack(side="left",padx=(0,s(4)))
+            # Track bar for wave animation
+            if se.status == "busy":
+                self._wave_bars.append((bar, bw, fw, bh, pct))
+            cs=f"{pct:.1f}%"
+            bt = tk.Label(l2,text=f"{cs}",bg=C.base,fg=C.sub,font=("Consolas",12))
+            bt.pack(side="left")
+            self._bar_texts.append(bt)
+
+            # Recursively bind click-to-jump on every widget in this row
+            def _bind_recursive(w, cwd):
+                w.bind("<Button-1>", lambda e, c=cwd: self._bring_terminal_to_front(cwd=c))
+                try:
+                    for child in w.winfo_children():
+                        _bind_recursive(child, cwd)
+                except tk.TclError:
+                    pass
+            _bind_recursive(info, se.cwd)
+            dot.bind("<Button-1>", lambda e, c=se.cwd: self._bring_terminal_to_front(cwd=c))
+
+            row+=1
+
+        if not stats.sessions:
+            tk.Label(body,text="No active sessions",bg=C.base,fg=C.subtle,font=("Segoe UI",9)).grid(row=3,column=0,columnspan=2)
+        body.grid_columnconfigure(1,weight=1)
+
+        # Resize — pinned edge stays fixed, the other edge expands
+        new_w = self.s(350)
+        pad = self.s(6)
+        body_y = getattr(self, '_body_y0', pad + self.s(26) + self.s(2))
+
+        # Measure actual body content height
+        body.update_idletasks()
+        body_req = body.winfo_reqheight()
+        needed = max(self.s(80), body_y + pad + body_req)
+
+        is_first = not hasattr(self, '_panel_h')
+        prev_h = getattr(self, '_panel_h', needed)
+        try:
+            x = self._stats_panel.winfo_x()
+            y = self._stats_panel.winfo_y()
+
+            if is_first:
+                sw = self._stats_panel.winfo_screenwidth()
+                x = sw // 2 - new_w // 2
+                y = 0
+            else:
+                sb = self._get_screen_bottom()
+                if (y + prev_h - sb) > -60 and abs(y + prev_h - sb) < 60:
+                    y = max(0, sb - needed)
+                elif y <= 5:
+                    y = 0
+
+            self._stats_panel.geometry(f"{new_w}x{needed}+{x}+{y}")
+        except tk.TclError: pass
+        self._panel_h = needed
+
+        # Reposition body + re-clip
+        try:
+            self._panel_body.place_configure(height=needed - body_y - pad)
+        except tk.TclError: pass
+        if hasattr(self, '_clip_panel'):
+            self.root.after(50, self._clip_panel)
+
+    def _update_tray(self, stats):
+        """Refresh tray tooltip with live stats."""
+        if not self._tray_icon:
+            return
+        tip = f"Lorien_Lab"
+        tip += f"\n{stats.active_count} active · {stats.idle_count} idle"
+        tip += f"\n{_fmt_tokens(stats.total_input)} in · {_fmt_tokens(stats.total_output)} out"
+        if stats.total_cost > 0.001:
+            tip += f" · {_fmt_cost(stats.total_cost)}"
+        for s in stats.sessions[:6]:
+            icon = "●" if s.status == "busy" else "○"
+            tip += f"\n{icon} {s.short_dir:<28} {_fmt_tokens(s.input_tokens):>6} in"
+        self._tray_icon.title = tip[:127]  # Windows limit
+
+    def _create_tray(self):
+        """Create system tray icon (runs after window is ready)."""
+        try:
+            icon_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "icon.png")
+            if os.path.exists(icon_path):
+                img = Image.open(icon_path)
+            else:
+                img = Image.new("RGB", (64, 64), "#2E1A47")
+            menu = pystray.Menu(
+                pystray.MenuItem("Show", self._show_from_tray, default=True),
+                pystray.MenuItem("Restart", self._restart_app),
+                pystray.MenuItem("Exit", self._quit_app),
+            )
+            self._tray_icon = pystray.Icon(
+                "AgentLauncher", img, "Agent Launcher", menu)
+            self._tray_thread = threading.Thread(
+                target=self._tray_icon.run, daemon=True)
+            self._tray_thread.start()
+        except Exception:
+            pass  # tray is optional
+
+    def _hide_to_tray(self):
+        """Minimize to tray instead of closing."""
+        self.root.withdraw()
+
+    def _show_from_tray(self):
+        """Restore window from tray."""
+        self.root.after(0, self._restore_window)
+
+    def _restore_window(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def _bring_terminal_to_front(self, cwd=None):
+        """Bring the terminal window matching cwd to front.
+
+        Uses the snapshot-diff HWND map populated by launch_in_terminal.
+        Falls back to title scan for windows launched outside this session.
+        """
+        if not cwd:
+            return
+        norm = os.path.normpath(cwd).lower()
+
+        # 1. HWND cache (fast path)
+        with _HWND_LOCK:
+            hwnd = _terminal_hwnds.get(norm)
+        if hwnd:
+            try:
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                return
+            except Exception: pass
+
+        # 2. Fallback — title-based enumeration
+        self._bring_terminal_by_title(cwd)
+
+    def _bring_terminal_by_title(self, cwd):
+        """Enumerate all WT windows and match by title substring."""
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            dir_tag = os.path.basename(cwd) if cwd else None
+            if not dir_tag:
+                return
+
+            found_hwnd = None
+
+            @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_long, ctypes.c_long)
+            def _enum(hwnd, _):
+                nonlocal found_hwnd
+                buf_cls = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(hwnd, buf_cls, 63)
+                if buf_cls.value != WT_CLASS:
+                    return 1
+                buf_text = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(hwnd, buf_text, 255)
+                t = buf_text.value
+                if dir_tag in t:
+                    found_hwnd = hwnd
+                    return 0  # stop
+                return 1
+            user32.EnumWindows(_enum, 0)
+
+            if found_hwnd:
+                with _HWND_LOCK:
+                    _terminal_hwnds[os.path.normpath(cwd).lower()] = found_hwnd
+                user32.SetForegroundWindow(found_hwnd)
+        except Exception:
+            pass
+
+    def _quit_app(self):
+        """Fully exit the application."""
+        try:
+            if self._tray_icon:
+                self._tray_icon.stop()
+        except Exception:
+            pass
+        self.root.destroy()
+
+    def _restart_app(self):
+        """Restart the application — spawn new process, then quit."""
+        import sys
+        python = sys.executable
+        script = os.path.abspath(__file__)
+        # Spawn the new process first (detached from parent lifetime)
+        try:
+            subprocess.Popen(
+                [python, script],
+                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                close_fds=True,
+            )
+        except Exception:
+            pass
+        # Then quit — schedule on main thread since we're in pystray's thread
+        self.root.after(0, self._quit_app)
+
+    def s(self, v):
+        return max(1, round(v * self.scale))
+
+    # ── Build ──
+    def build_ui(self):
+        s = self.s
+        r = self.root
+
+        # Header
+        header = tk.Frame(r, bg="#2E1A47", height=s(22))
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Frame(header, height=s(1), bg=C.mauve).pack(side="bottom", fill="x")
+        tk.Label(header, text="Agent Launcher & Terminal Themes",
+                 bg="#2E1A47", fg=C.sub, font=("Segoe UI", 9)).pack(pady=(s(3), 0))
+
+        # Content
+        content = tk.Frame(r, bg=C.base)
+        content.pack(fill="both", expand=True, padx=s(6), pady=(s(2), s(2)))
+
+        # ── Directory Card ──
+        dir_card = tk.Frame(content, bg=C.card)
+        dir_card.pack(fill="both", expand=True, pady=(0, s(2)))
+
+        hdr_frame = tk.Frame(dir_card, bg=C.card)
+        hdr_frame.pack(fill="x", padx=s(4), pady=(s(1), 0))
+        tk.Label(hdr_frame, text="📂  Working Directory", bg=C.card, fg=C.text,
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
+
+        lb_frame = tk.Frame(dir_card, bg=C.listbg)
+        lb_frame.pack(fill="both", expand=True, padx=0, pady=(s(1), 0))
+
+        # Flat listbox: no triangles, headers toggle children visibility
+        self.dir_list = tk.Listbox(
+            lb_frame, bg=C.listbg, fg=C.text,
+            selectbackground=C.blue, selectforeground="#000000",
+            font=("Cascadia Code", 10), borderwidth=0,
+            highlightthickness=0, activestyle="none",
+            relief="flat", cursor="hand2",
+        )
+        self.dir_list.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(lb_frame, orient="vertical", command=self.dir_list.yview)
+        sb.pack(side="right", fill="y")
+        self.dir_list.config(yscrollcommand=sb.set)
+
+        # Store all entries: (label, path, parent_name or "")
+        self._all_dirs = []
+        self._expanded = {}  # parent_name -> bool
+        self._dir_map = {}   # listbox idx -> (label, path)
+        current_parent = ""
+        for label, path, flag in self.dirs:
+            if flag == "PARENT":
+                current_parent = label.lstrip("▸  ")
+                self._expanded[current_parent] = False
+                self._all_dirs.append((label, path, ""))
+            else:
+                self._all_dirs.append((label, path, current_parent if current_parent else ""))
+        current_parent = ""
+
+        self._refresh_list()
+
+        self.dir_list.bind("<Double-Button-1>", lambda e: self.on_launch())
+        self.dir_list.bind("<Return>", lambda e: self.on_launch())
+        self.dir_list.bind("<Button-1>", self._on_list_click)
+
+        # ── Background Card ──
+        bg_card = tk.Frame(content, bg=C.card)
+        bg_card.pack(fill="x", pady=(0, s(2)))
+
+        tk.Label(bg_card, text="🎨  Background Mode", bg=C.card, fg=C.text,
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=s(8), pady=(s(2), s(2)))
+        tk.Frame(bg_card, height=1, bg=C.border).pack(fill="x", padx=s(8))
+
+        self.mode_var = tk.StringVar(value="none")
+        modes = [
+            ("acrylic", "🪟  Acrylic — frosted glass"),
+            ("opacity", "🔲  Opacity — pure transparent"),
+            ("none",    "⬛  None — solid color"),
+        ]
+        for val, txt in modes:
+            tk.Radiobutton(bg_card, text=txt, value=val, variable=self.mode_var,
+                           command=self.on_mode_change, bg=C.card, fg=C.text,
+                           selectcolor=C.card, activebackground=C.card,
+                           activeforeground=C.blue, font=("Segoe UI", 10),
+                           anchor="w", padx=s(6), pady=0, cursor="hand2",
+                           ).pack(fill="x")
+
+        sf = tk.Frame(bg_card, bg=C.card)
+        sf.pack(fill="x", padx=s(8), pady=(s(1), s(3)))
+        tk.Label(sf, text="🔆", bg=C.card, font=("Segoe UI", 11)).pack(side="left", padx=(0, s(4)))
+        self.opacity_var = tk.IntVar(value=50)
+        self.opacity_scale = ttk.Scale(
+            sf, from_=0, to=100, variable=self.opacity_var,
+            orient="horizontal", command=self.on_slider_change)
+        style = ttk.Style()
+        style.configure("TScale", background=C.card, troughcolor=C.border)
+        self.opacity_scale.pack(side="left", fill="x", expand=True, padx=(0, s(8)))
+        self.opacity_label = tk.Label(
+            sf, text="50%", bg=C.card, fg=C.text,
+            font=("Segoe UI", 10, "bold"), width=4, anchor="e")
+        self.opacity_label.pack(side="right")
+
+        # ── Buttons ──
+        btn_area = tk.Frame(content, bg=C.base)
+        btn_area.pack(fill="x", pady=(s(0), s(0)))
+
+        # Use grid with uniform columns → truly equal width buttons
+        btn_area.grid_columnconfigure(0, weight=1, uniform="btn")
+        btn_area.grid_columnconfigure(1, weight=1, uniform="btn")
+
+        self._launch_btn = NeonButton(
+            btn_area, "🚀  Claude Code",
+            bg="#35B368", glow="#50FA7B",
+            command=self.on_launch, font=("Segoe UI", 12, "bold"))
+        self._launch_btn.configure(height=s(32))
+        self._launch_btn.grid(row=0, column=0, sticky="ew", padx=(0, s(4)))
+
+        self._hermes_btn = NeonButton(
+            btn_area, "🤖  Hermes",
+            bg="#E89050", glow="#FFB86C",
+            command=self.on_launch_hermes, font=("Segoe UI", 12, "bold"))
+        self._hermes_btn.configure(height=s(32))
+        self._hermes_btn.grid(row=0, column=1, sticky="ew")
+
+        # Row 2: save button, full width
+        self._save_btn = NeonButton(
+            btn_area, "💾  Save Background",
+            bg="#4A6DB8", glow="#89B4FA",
+            command=self.on_save_background, font=("Segoe UI", 12, "bold"))
+        self._save_btn.configure(height=s(32))
+        self._save_btn.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(s(1), 0))
+
+        # Status
+        self.status_var = tk.StringVar(value="Lorien_Lab")
+        tk.Label(content, textvariable=self.status_var, bg=C.base, fg=C.subtle,
+                 font=("Segoe UI", 9)).pack(pady=(s(2), 0))
+
+    # ── Logic ──
+    def load_current_settings(self):
+        mode, value = get_current_mode()
+        self.mode_var.set(mode)
+        self.opacity_var.set(value)
+        self.opacity_label.config(text=f"{value}%")
+        self._update_slider_state()
+
+    def _update_slider_state(self):
+        if self.mode_var.get() == "none":
+            self.opacity_scale.config(state="disabled")
+            self.opacity_label.config(fg=C.subtle)
+        else:
+            self.opacity_scale.config(state="normal")
+            self.opacity_label.config(fg=C.text)
+
+    def on_mode_change(self):
+        self._update_slider_state()
+
+    def on_slider_change(self, val):
+        self.opacity_label.config(text=f"{int(float(val))}%")
+
+    def on_save_background(self):
+        mode = self.mode_var.get()
+        value = self.opacity_var.get()
+        apply_background(mode, value)
+        self.status_var.set(f"✓  Saved: {mode} at {value}%")
+        self.root.after(3000, lambda: self.status_var.set("Lorien_Lab"))
+
+    def _refresh_list(self):
+        """Rebuild listbox based on current expand state."""
+        self.dir_list.delete(0, tk.END)
+        self._dir_map.clear()
+        lidx = 0
+        for label, path, parent in self._all_dirs:
+            if parent and not self._expanded.get(parent, False):
+                continue
+            # Flip arrow for headers
+            if label.startswith("▸"):
+                name = label[3:]
+                arrow = "▾" if self._expanded.get(name, False) else "▸"
+                display = f" {arrow}  {name}"
+            else:
+                display = label
+            self.dir_list.insert(tk.END, display)
+            if display.strip().startswith(("▸", "▾")):
+                self.dir_list.itemconfig(lidx, fg=C.mauve)
+            self._dir_map[lidx] = (label, path)
+            lidx += 1
+
+    def _on_list_click(self, event):
+        """Toggle expand on parent header click; select non-header items."""
+        idx = self.dir_list.nearest(event.y)
+        if idx < 0 or idx not in self._dir_map:
+            return
+        label, path = self._dir_map[idx]
+        if label.strip().startswith(("▸", "▾")):
+            name = label.strip()[3:]  # strip arrow + spaces
+            self._expanded[name] = not self._expanded.get(name, False)
+            self._refresh_list()
+        else:
+            # Explicitly select the clicked directory item.
+            # The custom <Button-1> binding can prevent Tk's default
+            # class binding from selecting — do it ourselves.
+            self.dir_list.selection_clear(0, tk.END)
+            self.dir_list.selection_set(idx)
+            self.dir_list.activate(idx)
+
+    def _get_selected(self):
+        sel = self.dir_list.curselection()
+        if not sel:
+            return None
+        idx = sel[0]
+        data = self._dir_map.get(idx)
+        if data:
+            return data  # (label, path)
+        return None
+
+    def on_launch(self):
+        pair = self._get_selected()
+        if not pair:
+            self.status_var.set("⚠  Please select a directory first")
+            return
+        label, path = pair
+        name = label.strip().lstrip("🏠📁  ")
+        if launch_claude(path):
+            self.status_var.set(f"✓  Claude Code launched: {name}")
+            self.root.after(5000, lambda: self.status_var.set("Lorien_Lab"))
+        else:
+            self.status_var.set("✗  Failed to launch")
+
+    def on_launch_hermes(self):
+        pair = self._get_selected()
+        if not pair:
+            self.status_var.set("⚠  Please select a directory first")
+            return
+        label, path = pair
+        name = label.strip().lstrip("🏠📁  ")
+        if launch_hermes(path):
+            self.status_var.set(f"✓  Hermes launched: {name}")
+            self.root.after(5000, lambda: self.status_var.set("Lorien_Lab"))
+        else:
+            self.status_var.set("✗  Failed to launch")
+
+
+def main():
+    root = tk.Tk()
+    TerminalManager(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
