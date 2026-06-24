@@ -9,7 +9,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 os.environ.setdefault("LOCALAPPDATA", str(ROOT / ".localappdata"))
 
-# Keep the helper tests independent of optional desktop-only dependencies.
+# Keep helper tests independent of optional desktop-only dependencies.
 sys.modules.setdefault("pystray", types.SimpleNamespace())
 if "PIL" not in sys.modules:
     pil = types.ModuleType("PIL")
@@ -17,15 +17,19 @@ if "PIL" not in sys.modules:
     sys.modules["PIL"] = pil
 sys.path.insert(0, str(ROOT))
 
-spec = importlib.util.spec_from_file_location("terminal_manager_under_test", ROOT / "terminal_manager.py")
+spec = importlib.util.spec_from_file_location(
+    "terminal_manager_under_test", ROOT / "terminal_manager.py"
+)
 module = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(module)
 
 
 class SessionPanelHelperTests(unittest.TestCase):
-    def test_panel_width_is_compact(self):
+    def test_panel_and_card_dimensions_are_compact(self):
         self.assertEqual(module.SESSION_PANEL_WIDTH, 380)
+        self.assertEqual(module.SessionCard.COLLAPSED_H, 56)
+        self.assertEqual(module.SessionCard.EXPANDED_H, 80)
 
     def test_clamp_pct(self):
         self.assertEqual(module._clamp_pct(-1), 0.0)
@@ -33,24 +37,15 @@ class SessionPanelHelperTests(unittest.TestCase):
         self.assertEqual(module._clamp_pct(120), 100.0)
         self.assertEqual(module._clamp_pct("bad"), 0.0)
 
-    def test_short_model_name(self):
-        self.assertEqual(module._short_model_name("deepseek-v4-pro"), "DSv4")
-        self.assertEqual(
-            module._short_model_name("claude-sonnet-4-20250514"),
-            "sonnet-4-20250514",
-        )
-        self.assertEqual(module._short_model_name("?"), "")
-        self.assertEqual(module._short_model_name(""), "")
-
-    def test_updated_age(self):
-        self.assertEqual(module._format_updated_age(97.0, now=100.0), "Updated 3s ago")
-        self.assertEqual(module._format_updated_age(1.0, now=100.0), "Updated 1m ago")
-        self.assertEqual(module._format_updated_age(0.0, now=100.0), "Updated —")
-
     def test_progress_fill_width(self):
         self.assertEqual(module._progress_fill_width(200, 0), 0)
         self.assertEqual(module._progress_fill_width(200, 50), 100)
         self.assertEqual(module._progress_fill_width(200, 150), 200)
+
+    def test_running_progress_animates_whole_fill(self):
+        self.assertEqual(module._animated_progress_width(100, 0.0, False), 100)
+        self.assertEqual(module._animated_progress_width(100, 0.0, True), 1)
+        self.assertEqual(module._animated_progress_width(100, 3.1415926535, True), 49)
 
     def test_status_style(self):
         self.assertEqual(module._status_style("running")[0], "RUNNING")
@@ -62,6 +57,13 @@ class SessionPanelHelperTests(unittest.TestCase):
         self.assertEqual(module._context_text_color(70), module.C.yellow)
         self.assertEqual(module._context_text_color(85), module.C.orange)
         self.assertEqual(module._context_text_color(95), module.C.red)
+
+    def test_closed_sessions_are_filtered(self):
+        closed = types.SimpleNamespace(status="closed", pid=123)
+        active = types.SimpleNamespace(status="busy", pid=123)
+        self.assertFalse(module._session_is_open(closed, lambda _pid: True))
+        self.assertTrue(module._session_is_open(active, lambda _pid: True))
+        self.assertFalse(module._session_is_open(active, lambda _pid: False))
 
 
 if __name__ == "__main__":

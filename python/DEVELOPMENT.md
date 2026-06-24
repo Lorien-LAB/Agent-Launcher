@@ -3,134 +3,89 @@
 ## Architecture
 
 ```
-terminal_manager.py
-  ├── C                       # Launcher and Session Monitor palettes
-  ├── NeonButton              # Main-window Canvas button
-  ├── SessionCard             # Reusable monitor card with hover/animation
-  ├── TerminalManager         # Main window, tray, card registry, panel sizing
-  └── main()
-
-session_monitor.py
-  ├── SessionMonitor          # Background polling every 3 seconds
-  ├── SessionSnapshot         # One session's metrics
-  └── AggregateStats          # Cross-session totals
+terminal_manager.py              # Thin entry point and compatibility exports
+terminal_manager_core.py         # Launcher, tray, terminal focus, base panel
+session_panel_ui.py              # Compact SessionCard and animation overrides
+session_monitor.py               # Three-second Claude session scanner
 ```
 
-`SessionMonitor` remains a data source. All tkinter work is marshalled onto the main thread through `root.after()`.
+The split keeps launcher and Windows Terminal behavior stable while allowing the Session Monitor presentation to evolve independently.
 
-## Monitor Data Flow
+## Session Monitor Data Flow
 
 ```
 SessionMonitor.scan()
-  → read ~/.claude/sessions/*.json
-  → locate ~/.claude/projects/<encoded-path>/<session>.jsonl
-  → collect model, tokens, context %, branch, subagents and update time
-  → AggregateStats callback
-  → TerminalManager._update_tray(stats)
-  → TerminalManager._update_panel(stats)
-      ├── update two-row header summary
-      ├── detect busy → idle and create 5-second DONE state
-      ├── create/update/remove SessionCard by session_id
+  → AggregateStats
+  → session_panel_ui._filter_live_stats()
+      ├── remove closed/terminated statuses
+      └── remove sessions whose PID no longer exists
+  → tray summary
+  → TerminalManager._update_panel()
+      ├── reconcile SessionCard objects by session_id
       └── schedule one coalesced panel resize
 ```
 
-## SessionCard
-
-Each card owns its widgets and delayed callbacks. Its public presentation interface is:
-
-```python
-card.update_snapshot(snapshot, display_state)
-card.set_hovered(True or False)
-card.animate(phase, now)
-card.grid_at(row)
-card.destroy()
-```
-
-The manager stores cards in:
-
-```python
-self._session_cards: dict[str, SessionCard]
-```
-
-Normal polling updates all displayed values in place. Widgets are created only for new sessions and destroyed only when sessions disappear.
-
 ## Panel Layout
 
-- Logical width: 380 px before DPI scaling, defined by `SESSION_PANEL_WIDTH`.
-- Borderless, topmost `Toplevel`, alpha 0.94.
-- Native rounded clipping through `SetWindowRgn`.
-- Header row 1: title and clock.
-- Header row 2: active, idle, and total-token summaries.
-- Only the header starts dragging; cards remain clickable.
-- Card viewport scrolls with the mouse wheel when content exceeds the work area.
-- Resizing preserves top or bottom pinning and reuses the same width constant.
+- Logical width: 380 px before DPI scaling (`SESSION_PANEL_WIDTH`).
+- Borderless, always-on-top `Toplevel`, alpha 0.94.
+- Two-row header with clock and aggregate counts.
+- Mouse-wheel card viewport for short screens.
+- Only the header initiates panel dragging.
+- Up to 12 live sessions are displayed.
 
-## Card Layout
+## Compact SessionCard
 
-Collapsed cards show:
+Collapsed height is 56 logical pixels, just enough for:
 
-1. Status star, directory, and RUNNING/DONE/IDLE.
-2. Model, branch, sub-agent count, and context percentage.
-3. Fixed-width gradient context bar.
+1. status star, session name, and RUNNING/DONE/IDLE;
+2. Git branch, sub-agent count, and context percentage;
+3. the context progress bar.
 
-Hover expands one card at a time and reveals:
+The state label uses the same 11-point bold Consolas size as the session name.
 
-- cumulative input/output tokens;
-- estimated cost;
-- working directory;
-- human-readable update age.
+Hover expands the card to 80 logical pixels and shows only cumulative input/output tokens and estimated cost. Model, full path, and update age are intentionally not rendered.
 
-Hover entry waits 80 ms and leave waits 120 ms. Card destruction cancels all pending `after()` callbacks.
+## Progress Bar
 
-## Animation
+The progress bar uses filled ovals plus a center rectangle, rather than pie arcs. This avoids the visible radial straight edges produced by Canvas arc sectors.
 
-The global loop runs every 100 ms and performs only lightweight drawing:
+- Gradient remains green → yellow → orange → red.
+- Idle and DONE states show the true context width.
+- RUNNING restores the original whole-fill sawtooth animation: the entire gradient grows from left to right up to the true context percentage, then restarts.
+- A subtle endpoint pulse remains above 95% context.
 
-- clock refresh once per second;
-- subtle header scan line;
-- running status-star and border breathing;
-- moving highlight over a fixed-width gradient bar;
-- warning endpoint pulse above 95% context.
+## Smooth Hover Animation
 
-Idle, non-hovered cards avoid continuous redraw. The progress fill width always equals the true context percentage and never resets to zero.
+Card expansion uses an 180 ms cubic ease-out at roughly 60 FPS.
+
+To avoid trails on the transparent top-level window:
+
+- expansion reserves the final panel height once before the card animation;
+- intermediate frames change only the card height and redraw only its border;
+- the progress bar is not reset during height ticks;
+- collapse shrinks the outer panel only after the card reaches its collapsed height;
+- `SetWindowRgn` is therefore not recreated on every animation frame.
 
 ## DONE State
 
-A `busy → idle` transition:
+A `busy → idle` transition still:
 
-1. stores `time.monotonic() + 5` in `_done_until`;
-2. displays a yellow DONE card state;
-3. schedules terminal focus after 500 ms;
-4. returns to IDLE after the deadline;
-5. immediately returns to RUNNING if the session becomes busy again.
+1. displays a yellow DONE state for five seconds;
+2. schedules matching terminal focus;
+3. returns to IDLE unless the session becomes busy again.
 
-## Launch Flow
-
-```
-select directory
-  → launch_in_terminal()
-  → create temporary PowerShell script
-  → wt -w new -d <path> --title "Claude Code — <dir>" pwsh -NoExit -File <script>
-  → remove temporary script after 5 seconds
-  → snapshot-diff Windows Terminal HWNDs for click-to-focus
-```
-
-`terminal_manager.py` must import `time`; both temporary-file cleanup and HWND tracking use `time.sleep()`.
+A session disappears completely once its process exits or its metadata status becomes closed/terminated.
 
 ## Verification
 
-Automated checks:
-
 ```bash
 python -m unittest discover -s python/tests -v
-python -m py_compile python/terminal_manager.py python/session_monitor.py
+python -m py_compile \
+  python/terminal_manager.py \
+  python/terminal_manager_core.py \
+  python/session_panel_ui.py \
+  python/session_monitor.py
 ```
 
-A headless Xvfb smoke run can validate tkinter card creation and reconciliation on Linux, but final acceptance still requires Windows testing for:
-
-- Windows Terminal launch/focus;
-- top and bottom panel pinning;
-- high-DPI rendering;
-- Chinese paths;
-- tray shutdown;
-- DONE auto-pop behavior.
+Final acceptance still requires Windows desktop checks for DPI rendering, Windows Terminal focus, tray shutdown, top/bottom docking, Unicode paths, and visual confirmation that hover animation leaves no trails.
