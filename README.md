@@ -1,37 +1,24 @@
 # Agent Launcher
 
-Desktop GUI for launching Claude Code / Hermes in working directories, with a real-time Session Monitor panel, animated progress bars, and Windows Terminal transparency customization.
+Desktop GUI for launching Claude Code / Hermes in working directories, with a real-time Session Monitor panel and Windows Terminal transparency customization.
 
 ---
 
 ## Project Structure
 
 ```
-terminal-manager/
-├── README.md                          # This file
-│
-├── python/                            # Python 3.14 + tkinter edition
-│   ├── terminal_manager.py            # Main application
-│   ├── session_monitor.py             # Monitoring engine
-│   ├── run.bat                        # Double-click launcher
+Agent-Launcher/
+├── README.md
+├── docs/superpowers/                 # Approved UI spec and implementation plan
+├── python/                           # Python 3.14 + tkinter edition
+│   ├── terminal_manager.py           # Main application + SessionCard UI
+│   ├── session_monitor.py            # Monitoring engine
+│   ├── tests/                        # Display-independent panel helper tests
+│   ├── run.bat                       # Double-click launcher
 │   ├── .gitignore
-│   └── DEVELOPMENT.md                 # Python dev docs
-│
-├── csharp/AgentLauncher/              # C# 12 / .NET 8 WPF edition
-│   ├── AgentLauncher.csproj           # Project file
-│   ├── App.xaml / .cs                 # Entry + global styles
-│   ├── MainWindow.xaml / .cs          # Main window
-│   ├── SessionPanel.xaml / .cs        # Floating Session Monitor
-│   ├── Models/SessionSnapshot.cs      # Data models
-│   ├── Services/                      # SessionMonitor, TerminalSettings, Launcher
-│   ├── Helpers/NativeMethods.cs       # P/Invoke
-│   ├── Converters/                    # XAML converters
-│   ├── Resources/icon.ico             # Tray icon
-│   ├── run.bat                        # dotnet run launcher
-│   ├── build.bat                      # Publish standalone .exe
-│   └── DEVELOPMENT.md                 # C# dev docs
-│
-├── icon.png                           # Tray icon (source PNG)
+│   └── DEVELOPMENT.md                # Python development notes
+├── csharp/AgentLauncher/             # C# 12 / .NET 8 WPF edition
+├── icon.png                          # Tray icon source
 └── .gitignore
 ```
 
@@ -40,13 +27,12 @@ terminal-manager/
 | | Python | C# WPF |
 |------|--------|--------|
 | **Language** | Python 3.14 | C# 12 / .NET 8 |
-| **Framework** | tkinter (built-in) | WPF (Windows-native) |
+| **Framework** | tkinter | WPF |
 | **Tray** | pystray | P/Invoke Shell_NotifyIcon |
 | **Packaging** | PyInstaller | dotnet publish |
-| **.exe size** | ~30 MB | ~5 MB |
-| **Best for** | Quick iteration, no SDK needed | Native Win11 look, smaller footprint |
+| **Best for** | Quick iteration | Native Windows UI |
 
-Both editions share identical features and monitor the same `~/.claude/sessions/` data.
+Both editions monitor the same `~/.claude/sessions/` data. Their presentation can evolve independently.
 
 ## Features
 
@@ -54,58 +40,66 @@ Both editions share identical features and monitor the same `~/.claude/sessions/
 |---------|-------------|
 | **Agent Launch** | Double-click a directory to launch Claude Code or Hermes in Windows Terminal |
 | **Directory Tree** | Collapsible section headers group subdirectories |
-| **Terminal Themes** | Acrylic (frosted glass), Opacity (transparent), or solid background |
-| **Opacity Slider** | 0–100% transparency control |
-| **Session Monitor** | Floating borderless panel, always on top, rounded corners |
-| **Token Tracking** | `input + cache_read` context algorithm (abtop-compatible) |
-| **Animated Progress Bar** | Sawtooth fill + HSL green→red gradient |
-| **Per-letter Wave** | Directory name + RUNNING/DONE status letters individually pulse |
-| **Star Indicators** | Four-pointed polygon: glowing busy, yellow completed, hollow idle |
-| **Model & Git Badges** | DSv4 / Sonnet / Opus, git branch, sub-agent count |
-| **System Tray** | Close → minimize to tray. Tooltip shows live stats |
-| **Anti-flicker** | Text-only patch when only token values change |
-| **Terminal Pop-to-Front** | Completed session → terminal window brought to foreground |
-| **Edge Snapping** | Panel drag snaps to screen edges (40px) |
-| **Taskbar Aware** | WorkArea-based positioning, auto-hide support |
+| **Terminal Themes** | Acrylic, opacity, or solid Windows Terminal backgrounds |
+| **Session Monitor** | Floating, borderless, rounded, always-on-top panel |
+| **Reusable Session Cards** | Cards are reconciled by session ID and updated in place without full panel rebuilds |
+| **Hover Details** | Hover one card to reveal input/output tokens, estimated cost, path, and update age |
+| **Gradient Context Bar** | Fixed true-width green→yellow→orange→red gradient with a moving running-state highlight |
+| **Status Treatment** | Pulsing RUNNING, temporary five-second DONE, and subdued IDLE states |
+| **Model & Git Badges** | Compact model, branch, and sub-agent metadata |
+| **Scrollable Card Area** | Up to 12 cards remain accessible on shorter screens |
+| **System Tray** | Close minimizes to tray; tooltip shows live totals |
+| **Terminal Pop-to-Front** | Completed session brings its matching terminal to the foreground |
+| **Edge Snapping** | Header drag snaps the panel to screen edges |
+| **Taskbar Aware** | Top/bottom pinning respects the Windows work area |
 
 ## Quick Start
 
 ### Python
+
 ```batch
 cd python
 run.bat
 ```
 
 ### C# WPF
+
 ```batch
 cd csharp\AgentLauncher
 run.bat
 ```
 
-## Key Bindings
+## Python Checks
+
+```bash
+python -m unittest discover -s python/tests -v
+python -m py_compile python/terminal_manager.py python/session_monitor.py
+```
+
+The final visual validation must be performed on Windows because the launcher uses Windows Terminal and Win32 APIs.
+
+## Key Interactions
 
 | Input | Action |
 |-------|--------|
 | Double-click directory | Launch Claude Code |
 | Click section header | Expand/collapse |
+| Drag Session Monitor header | Move/snap the floating panel |
+| Hover session card | Expand details |
+| Click session card | Focus matching terminal |
+| Mouse wheel over cards | Scroll the session list |
 | Close button | Minimize to tray |
-| Tray double-click | Restore window |
 | Tray right-click → Exit | Quit |
 
 ## Configuration
 
-### Python: `terminal_manager.py`
+### Python: `python/terminal_manager.py`
+
 ```python
 BASE_DIRS = [
     r"D:\Quantitative Trading",
     r"D:\University\Kaggle",
-    ...
+    # ...
 ]
 CLAUDE_ARGS = "--dangerously-skip-permissions"
-```
-
-### C#: `MainWindow.xaml.cs`
-```csharp
-private static readonly string[] BaseDirs = { ... };
-private static readonly string ClaudeArgs = "--dangerously-skip-permissions";
 ```
