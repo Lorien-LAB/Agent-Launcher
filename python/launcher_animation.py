@@ -12,6 +12,17 @@ def ease_out_cubic(value: float) -> float:
     return 1.0 - (1.0 - t) ** 3
 
 
+def animation_duration(reduced_motion: bool) -> float:
+    return 0.0 if reduced_motion else ANIMATION_SECONDS
+
+
+def content_opacity(progress: float, *, expanding: bool) -> float:
+    value = max(0.0, min(1.0, float(progress)))
+    if expanding:
+        return max(0.0, min(1.0, (value - 0.45) / 0.55))
+    return max(0.0, min(1.0, value / 0.45))
+
+
 def clamp_target_size(
     width: int,
     height: int,
@@ -21,7 +32,10 @@ def clamp_target_size(
 ) -> tuple[int, int]:
     usable_width = max(1, int(work_width) - int(margin))
     usable_height = max(1, int(work_height) - int(margin))
-    return max(1, min(int(width), usable_width)), max(1, min(int(height), usable_height))
+    return (
+        max(1, min(int(width), usable_width)),
+        max(1, min(int(height), usable_height)),
+    )
 
 
 class WindowAnimator:
@@ -45,7 +59,9 @@ class WindowAnimator:
         target_height: int,
         work_width: int,
         work_height: int,
+        on_progress=None,
         on_complete=None,
+        reduced_motion=False,
     ) -> bool:
         if self._running:
             return False
@@ -61,6 +77,19 @@ class WindowAnimator:
         start_height = int(self.root.winfo_height())
         anchor_x = int(self.root.winfo_x())
         anchor_y = int(self.root.winfo_y())
+        duration = animation_duration(bool(reduced_motion))
+
+        if duration <= 0.0:
+            try:
+                self.root.geometry(f"{width}x{height}+{anchor_x}+{anchor_y}")
+                if on_progress is not None:
+                    on_progress(1.0)
+                if on_complete is not None:
+                    on_complete()
+            except Exception:
+                return False
+            return True
+
         started_at = self.now()
         self._running = True
         self._cancelled = False
@@ -72,13 +101,19 @@ class WindowAnimator:
                 return
             try:
                 elapsed = self.now() - started_at
-                progress = min(1.0, max(0.0, elapsed / ANIMATION_SECONDS))
+                progress = min(1.0, max(0.0, elapsed / duration))
                 eased = ease_out_cubic(progress)
-                current_width = round(start_width + (width - start_width) * eased)
-                current_height = round(start_height + (height - start_height) * eased)
+                current_width = round(
+                    start_width + (width - start_width) * eased
+                )
+                current_height = round(
+                    start_height + (height - start_height) * eased
+                )
                 self.root.geometry(
                     f"{current_width}x{current_height}+{anchor_x}+{anchor_y}"
                 )
+                if on_progress is not None:
+                    on_progress(progress)
             except Exception:
                 self._running = False
                 self._after_id = None
