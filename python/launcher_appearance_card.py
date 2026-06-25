@@ -4,7 +4,13 @@ import tkinter as tk
 
 from launcher_settings_models import appearance_status_text
 from launcher_state import AppearanceSettings
-from launcher_widgets import GhostButton, PrimaryButton, RoundedCard, SegmentedControl, ThemedSlider
+from launcher_widgets import (
+    GhostButton,
+    PrimaryButton,
+    RoundedCard,
+    SegmentedControl,
+    ThemedSlider,
+)
 
 
 class TerminalAppearanceCard(RoundedCard):
@@ -17,7 +23,13 @@ class TerminalAppearanceCard(RoundedCard):
         self.opacity_text_var = tk.StringVar(value="50%")
         self.status_var = tk.StringVar(value="No changes")
         self.dirty = False
-        super().__init__(master, theme=theme, scale=scale, height=scale(168))
+        super().__init__(
+            master,
+            theme=theme,
+            scale=scale,
+            height=scale(144),
+            padding=8,
+        )
         body = self.content
         body.grid_columnconfigure(0, weight=1)
         tk.Label(
@@ -30,15 +42,21 @@ class TerminalAppearanceCard(RoundedCard):
         ).grid(row=0, column=0, sticky="ew")
         self.mode_control = SegmentedControl(
             body,
-            options=(("acrylic", "Acrylic"), ("opacity", "Opacity"), ("none", "Solid")),
+            options=(
+                ("acrylic", "Acrylic"),
+                ("opacity", "Opacity"),
+                ("none", "Solid"),
+            ),
             variable=self.mode_var,
             command=lambda _value: self._changed(),
             theme=theme,
             scale=scale,
+            height=30,
         )
-        self.mode_control.grid(row=1, column=0, sticky="ew", pady=(scale(6), 0))
+        self.mode_control.grid(row=1, column=0, sticky="ew", pady=(scale(4), 0))
+
         opacity_row = tk.Frame(body, bg=theme["surface_1"])
-        opacity_row.grid(row=2, column=0, sticky="ew", pady=(scale(6), 0))
+        opacity_row.grid(row=2, column=0, sticky="ew", pady=(scale(4), 0))
         opacity_row.grid_columnconfigure(0, weight=1)
         self.slider = ThemedSlider(
             opacity_row,
@@ -58,8 +76,9 @@ class TerminalAppearanceCard(RoundedCard):
             width=5,
             font=("Cascadia Code", 8),
         ).grid(row=0, column=1, padx=(scale(6), 0))
+
         actions = tk.Frame(body, bg=theme["surface_1"])
-        actions.grid(row=3, column=0, sticky="ew", pady=(scale(8), 0))
+        actions.grid(row=3, column=0, sticky="ew", pady=(scale(5), 0))
         actions.grid_columnconfigure(0, weight=1)
         self.status_label = tk.Label(
             actions,
@@ -72,12 +91,12 @@ class TerminalAppearanceCard(RoundedCard):
         self.status_label.grid(row=0, column=0, sticky="ew")
         self.cancel_button = GhostButton(
             actions,
-            text="Cancel Preview",
+            text="Cancel",
             command=callbacks.on_appearance_cancel,
             theme=theme,
             scale=scale,
-            width=105,
-            height=30,
+            width=72,
+            height=28,
         )
         self.cancel_button.grid(row=0, column=1, padx=(scale(6), 0))
         self.apply_button = PrimaryButton(
@@ -87,8 +106,8 @@ class TerminalAppearanceCard(RoundedCard):
             command=callbacks.on_appearance_apply,
             theme=theme,
             scale=scale,
-            width=72,
-            height=30,
+            width=68,
+            height=28,
         )
         self.apply_button.grid(row=0, column=2, padx=(scale(6), 0))
         self.set_dirty(False)
@@ -124,7 +143,9 @@ class TerminalAppearanceCard(RoundedCard):
 
     def set_dirty(self, dirty: bool, applied_now: bool = False):
         self.dirty = bool(dirty)
-        self.status_var.set(appearance_status_text(self.dirty, bool(applied_now)))
+        self.status_var.set(
+            appearance_status_text(self.dirty, bool(applied_now))
+        )
         color = (
             self.theme["warning"]
             if self.dirty
