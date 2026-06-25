@@ -3,33 +3,36 @@
 ## Architecture
 
 ```text
-terminal_manager.py              # Entry point and geometry-preserving focus
-terminal_manager_core.py         # Launcher, tray, terminal lookup, base panel
-session_panel_ui.py              # Progress animation and session filtering
-session_panel_layout.py          # 260px layout and hover-only metadata
+terminal_manager.py              # Entry point and override composition
+terminal_manager_core.py         # Launcher, tray, terminal integration, base panel
+session_panel_ui.py              # Progress animation and live-session filtering
+session_panel_layout.py          # 195px panel and two-line collapsed cards
+terminal_focus.py                # PID-aware, 64-bit-safe terminal activation
 session_monitor.py               # Three-second Claude session scanner
 ```
 
 ## Session Monitor Layout
 
-The panel is 260 logical pixels wide before DPI scaling.
+The panel is 195 logical pixels wide before DPI scaling.
 
-Collapsed cards are 44 logical pixels high and show only:
+Collapsed cards are 36 logical pixels high and contain exactly two content rows:
 
-1. status indicator;
-2. session name;
-3. RUNNING / DONE / IDLE;
-4. context progress bar.
+1. session name;
+2. context progress bar.
 
-Hover expands a card to 82 logical pixels and reveals:
+There is no status star, RUNNING/IDLE text, branch, agent count, percentage, token text, path, model, or update time in the collapsed state. Status is indicated only by the card border color.
 
+Hover expands a card to 78 logical pixels and reveals:
+
+- RUNNING / DONE / IDLE and context percentage;
 - Git branch;
 - sub-agent count;
-- context percentage;
 - input/output tokens;
 - estimated cost.
 
-Long branch names are truncated so the percentage remains visible. Model, working directory, and update age are not rendered.
+The details frame is removed from Tk geometry with `pack_forget()` after collapse. It is not merely hidden behind a short frame, preventing labels from leaking below the card border.
+
+The card viewport starts 48 logical pixels below the header content instead of 64, removing the large gap above the first card at high DPI.
 
 ## Hover Animation
 
@@ -40,6 +43,7 @@ To reduce trails on the transparent top-level window:
 - the panel reserves the final height once before expansion;
 - intermediate frames change only card geometry;
 - the progress bar is not reset during height ticks;
+- details are removed only after collapse completes;
 - the panel shrinks only after collapse completes;
 - rounded clipping is not recreated on every animation frame.
 
@@ -61,11 +65,19 @@ Sessions are omitted when:
 
 ## Card Click Behavior
 
-Clicking a session card raises its matching Windows Terminal window.
+A card click passes the complete `SessionSnapshot`, including its PID, rather than only the working directory.
 
-The Win32 focus path uses `SetWindowPos` with `SWP_NOMOVE | SWP_NOSIZE`, followed by `BringWindowToTop` and `SetForegroundWindow`. This changes only Z order and activation. It does not change the terminal's coordinates or size. A minimized terminal is restored to its previous placement before being raised.
+Terminal resolution proceeds in this order:
 
-Terminal matching still uses the launch-time cwd-to-HWND cache, with a Windows Terminal title lookup fallback.
+1. read the Windows process parent map using `CreateToolhelp32Snapshot`;
+2. follow the Claude session PID through its ancestor chain;
+3. enumerate 64-bit-safe Windows Terminal HWNDs and select the window whose process is in that chain;
+4. fall back to the launch-time cwd-to-HWND cache;
+5. finally fall back to case-insensitive terminal-title matching.
+
+The activation path temporarily toggles the target through TOPMOST and NOTOPMOST with `SWP_NOMOVE | SWP_NOSIZE`. It then calls `BringWindowToTop` and `SetForegroundWindow`. The terminal's coordinates and dimensions are unchanged, and it is not left permanently always-on-top. A minimized terminal is restored to its saved placement first.
+
+All HWND-related Win32 functions declare pointer-width-safe `ctypes.wintypes.HWND` signatures. This avoids truncating 64-bit window handles.
 
 ## Verification
 
@@ -76,15 +88,19 @@ python -m py_compile \
   python/terminal_manager_core.py \
   python/session_panel_ui.py \
   python/session_panel_layout.py \
+  python/terminal_focus.py \
   python/session_monitor.py
 ```
 
 Final Windows checks should cover:
 
-- 260px layout at the active DPI scale;
+- 195px layout at the active DPI scale;
+- minimal space between the header divider and the first card;
+- collapsed cards show only the name and progress bar;
+- no metadata leaks outside collapsed borders;
 - hover expansion and collapse without trails;
-- branch/agents/percentage visible only after expansion;
-- card click raises the matching terminal without moving or resizing it;
+- each card raises its corresponding terminal after an Agent Launcher restart;
+- terminal position and dimensions remain unchanged;
 - minimized terminal restoration;
 - top and bottom panel docking;
 - tray shutdown and restart;
