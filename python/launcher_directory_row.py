@@ -144,17 +144,17 @@ class DirectoryRowWidget(tk.Canvas):
         )
         self._scale_factor = max(0.01, float(self.s(100)) / 100.0)
         self._name_font = tkfont.Font(
-            master=master,
+            root=master,
             family="Segoe UI Semibold",
             size=9,
         )
         self._path_font = tkfont.Font(
-            master=master,
+            root=master,
             family="Cascadia Code",
             size=8,
         )
         self._favorite_font = tkfont.Font(
-            master=master,
+            root=master,
             family="Segoe UI Symbol",
             size=directory_row_geometry(320).favorite_font_size,
         )
