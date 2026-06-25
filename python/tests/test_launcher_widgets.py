@@ -7,6 +7,8 @@ import unittest
 import _bootstrap  # noqa: F401
 
 from launcher_background import blend_for_glow, glow_spec_for_mode
+from launcher_branding import brand_visual_spec, glass_palette
+from launcher_search_field import search_field_metrics
 from launcher_theme import COLORS
 from launcher_widgets import (
     SegmentedState,
@@ -60,6 +62,25 @@ class LauncherWidgetHelperTests(unittest.TestCase):
         self.assertFalse(scrollbar_should_show(0.0, 1.0))
         self.assertTrue(scrollbar_should_show(0.1, 0.6))
         self.assertTrue(scrollbar_should_show(0.0, 0.99))
+
+    def test_brand_buttons_use_glass_style_and_official_marks(self):
+        claude = brand_visual_spec("claude")
+        hermes = brand_visual_spec("hermes")
+        self.assertEqual("claude_burst", claude.icon_kind)
+        self.assertEqual("nous_wordmark", hermes.icon_kind)
+        self.assertGreaterEqual(claude.radius, 14)
+        self.assertGreaterEqual(hermes.radius, 14)
+
+        palette = glass_palette(COLORS, "claude")
+        self.assertNotEqual(COLORS["claude"], palette.normal)
+        self.assertNotEqual(palette.normal, palette.hover)
+        self.assertEqual(COLORS["text_primary"], palette.text)
+
+    def test_search_icon_is_large_and_uses_windows_search_glyph(self):
+        metrics = search_field_metrics()
+        self.assertEqual("\ue721", metrics.glyph)
+        self.assertGreaterEqual(metrics.font_size, 16)
+        self.assertGreater(metrics.text_x, metrics.icon_x)
 
 
 class LauncherBackgroundTests(unittest.TestCase):
