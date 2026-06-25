@@ -5,7 +5,11 @@ import unittest
 
 import _bootstrap  # noqa: F401
 
-from launcher_directory_row import build_row_presentation, fit_text_to_width
+from launcher_directory_row import (
+    build_row_presentation,
+    directory_row_geometry,
+    fit_text_to_width,
+)
 
 
 class LauncherDirectoryRowTests(unittest.TestCase):
@@ -46,6 +50,13 @@ class LauncherDirectoryRowTests(unittest.TestCase):
             "futures_analysis",
             fit_text_to_width("futures_analysis", 200, lambda text: len(text) * 7),
         )
+
+    def test_geometry_removes_folder_icon_and_enlarges_favorite(self):
+        geometry = directory_row_geometry(320, scale=1.0)
+        self.assertLessEqual(geometry.text_x, 16)
+        self.assertGreaterEqual(geometry.favorite_font_size, 14)
+        self.assertGreaterEqual(geometry.favorite_hit_radius, 16)
+        self.assertGreater(geometry.text_width, 240)
 
 
 if __name__ == "__main__":
