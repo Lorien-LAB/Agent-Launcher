@@ -79,6 +79,10 @@ class FakePlatform:
     def __init__(self):
         self.rounded = []
         self.taskbar = []
+        self.minimized = []
+
+    def resolve_toplevel(self, hwnd):
+        return hwnd + 1000
 
     def apply_rounded_corners(self, hwnd, enabled=True):
         self.rounded.append((hwnd, enabled))
@@ -86,6 +90,10 @@ class FakePlatform:
 
     def ensure_taskbar_presence(self, hwnd):
         self.taskbar.append(hwnd)
+        return True
+
+    def minimize_window(self, hwnd):
+        self.minimized.append(hwnd)
         return True
 
 
@@ -98,8 +106,18 @@ class LauncherChromeAdapterTests(unittest.TestCase):
         controller.apply_frameless()
 
         self.assertIn(("overrideredirect", True), root.calls)
-        self.assertEqual([123], platform.taskbar)
-        self.assertEqual([(123, True)], platform.rounded)
+        self.assertEqual([1123], platform.taskbar)
+        self.assertEqual([(1123, True)], platform.rounded)
+
+    def test_native_minimize_keeps_override_enabled(self):
+        root = FakeRoot()
+        platform = FakePlatform()
+        controller = LauncherChromeController(root, platform=platform)
+
+        self.assertTrue(controller.minimize_native())
+
+        self.assertEqual([1123], platform.minimized)
+        self.assertNotIn(("overrideredirect", False), root.calls)
 
     def test_drag_uses_pointer_offset(self):
         root = FakeRoot()
