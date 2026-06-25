@@ -71,7 +71,7 @@ _animated_progress_width = _panel_ui._animated_progress_width
 _session_is_open = _panel_ui._session_is_open
 _filter_live_stats = _panel_ui._filter_live_stats
 _compact_branch = _panel_layout._compact_branch
-_ancestor_pids = _terminal_focus.ancestor_chain
+_choose_pending_launch = _terminal_focus.choose_pending_launch
 _raise_terminal_window = _terminal_focus.raise_hwnd_preserving_geometry
 
 
