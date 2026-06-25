@@ -8,10 +8,11 @@ Desktop GUI for launching Claude Code or Hermes in working directories, with a r
 Agent-Launcher/
 ├── README.md
 ├── python/
-│   ├── terminal_manager.py          # Application entry point and terminal focus behavior
-│   ├── terminal_manager_core.py     # Launcher, tray, terminal focus, base panel
+│   ├── terminal_manager.py          # Application entry point
+│   ├── terminal_manager_core.py     # Launcher, tray, terminal integration
 │   ├── session_panel_ui.py          # Progress animation and session filtering
-│   ├── session_panel_layout.py      # Narrow card layout and hover details
+│   ├── session_panel_layout.py      # Ultra-compact layout and hover details
+│   ├── terminal_focus.py            # PID-aware Windows Terminal activation
 │   ├── session_monitor.py           # Session monitoring engine
 │   ├── tests/                       # Display-independent helper tests
 │   ├── run.bat                      # Double-click launcher
@@ -27,13 +28,14 @@ Agent-Launcher/
 | Agent Launch | Launch Claude Code or Hermes in a selected working directory |
 | Directory Tree | Collapsible directory groups |
 | Terminal Themes | Acrylic, opacity, or solid Windows Terminal backgrounds |
-| Session Monitor | 260px compact, borderless, always-on-top monitoring panel |
+| Session Monitor | 195px compact, borderless, always-on-top monitoring panel |
 | Reusable Session Cards | Session cards update in place by session ID |
-| Compact Collapsed Cards | Collapsed cards show only session name, state, and context bar |
-| Hover Details | Branch, agents, context percentage, token totals, and estimated cost |
+| Two-Line Collapsed Cards | Collapsed cards show only session name and context bar |
+| Hover Details | State, branch, agents, context percentage, token totals, and estimated cost |
 | Context Progress | Green-to-red whole-fill animated context usage bar |
 | Live Session Filtering | Closed sessions and exited PIDs are removed |
-| Geometry-Preserving Focus | Clicking a card raises its terminal without moving or resizing it |
+| PID-Aware Terminal Focus | Card clicks resolve the owning terminal from the session process tree |
+| Geometry-Preserving Focus | Raised terminals keep their existing position and dimensions |
 | System Tray | Close minimizes to tray; tooltip shows live totals |
 | Edge Snapping | Panel snaps to screen edges while dragging |
 | Taskbar Awareness | Resizing respects the Windows work area |
@@ -49,7 +51,7 @@ run.bat
 
 ```bash
 python -m unittest discover -s python/tests -v
-python -m py_compile python/terminal_manager.py python/terminal_manager_core.py python/session_panel_ui.py python/session_panel_layout.py python/session_monitor.py
+python -m py_compile python/terminal_manager.py python/terminal_manager_core.py python/session_panel_ui.py python/session_panel_layout.py python/terminal_focus.py python/session_monitor.py
 ```
 
 Final visual and Windows Terminal behavior should be validated on Windows.
