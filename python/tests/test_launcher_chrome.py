@@ -7,6 +7,7 @@ import _bootstrap  # noqa: F401
 from launcher_chrome import (
     ChromeState,
     DragAnchor,
+    LauncherChromeController,
     WindowBounds,
     calculate_drag_position,
     restore_for_drag,
@@ -39,6 +40,77 @@ class LauncherChromeTests(unittest.TestCase):
         self.assertEqual(WindowBounds(20, 30, 820, 560), state.restore_bounds)
         state.mark_restored()
         self.assertFalse(state.maximized)
+
+
+class FakeRoot:
+    def __init__(self):
+        self.calls = []
+        self.geometry_value = "820x560+100+100"
+
+    def overrideredirect(self, value):
+        self.calls.append(("overrideredirect", value))
+
+    def update_idletasks(self):
+        self.calls.append(("update_idletasks", None))
+
+    def winfo_id(self):
+        return 123
+
+    def winfo_x(self):
+        return 100
+
+    def winfo_y(self):
+        return 100
+
+    def winfo_width(self):
+        return 820
+
+    def winfo_height(self):
+        return 560
+
+    def geometry(self, value=None):
+        if value is not None:
+            self.geometry_value = value
+            self.calls.append(("geometry", value))
+        return self.geometry_value
+
+
+class FakePlatform:
+    def __init__(self):
+        self.rounded = []
+        self.taskbar = []
+
+    def apply_rounded_corners(self, hwnd, enabled=True):
+        self.rounded.append((hwnd, enabled))
+        return True
+
+    def ensure_taskbar_presence(self, hwnd):
+        self.taskbar.append(hwnd)
+        return True
+
+
+class LauncherChromeAdapterTests(unittest.TestCase):
+    def test_apply_frameless_enables_override_rounding_and_taskbar_style(self):
+        root = FakeRoot()
+        platform = FakePlatform()
+        controller = LauncherChromeController(root, platform=platform)
+
+        controller.apply_frameless()
+
+        self.assertIn(("overrideredirect", True), root.calls)
+        self.assertEqual([123], platform.taskbar)
+        self.assertEqual([(123, True)], platform.rounded)
+
+    def test_drag_uses_pointer_offset(self):
+        root = FakeRoot()
+        controller = LauncherChromeController(root, platform=FakePlatform())
+        begin = type("Event", (), {"x_root": 120, "y_root": 130})()
+        move = type("Event", (), {"x_root": 150, "y_root": 180})()
+
+        controller.begin_drag(begin)
+        controller.drag(move)
+
+        self.assertEqual("820x560+130+150", root.geometry_value)
 
 
 if __name__ == "__main__":
