@@ -5,7 +5,7 @@ import unittest
 
 import _bootstrap  # noqa: F401
 
-from launcher_directory_row import build_row_presentation
+from launcher_directory_row import build_row_presentation, fit_text_to_width
 
 
 class LauncherDirectoryRowTests(unittest.TestCase):
@@ -28,6 +28,24 @@ class LauncherDirectoryRowTests(unittest.TestCase):
     def test_root_path_keeps_meaningful_name(self):
         presentation = build_row_presentation("C:\\", available=True, path_limit=12)
         self.assertEqual("C:\\", presentation.name)
+
+    def test_width_aware_truncation_reserves_space_for_favorite_control(self):
+        value = "AFAC2026挑战组-赛题一：市场参与者交易行为识别与资金流向分析"
+
+        def measure(text):
+            return sum(14 if ord(character) > 127 else 7 for character in text)
+
+        result = fit_text_to_width(value, 245, measure)
+        self.assertLessEqual(measure(result), 245)
+        self.assertIn("…", result)
+        self.assertTrue(result.startswith("AFAC2026"))
+        self.assertTrue(result.endswith("分析"))
+
+    def test_width_aware_truncation_leaves_short_names_unchanged(self):
+        self.assertEqual(
+            "futures_analysis",
+            fit_text_to_width("futures_analysis", 200, lambda text: len(text) * 7),
+        )
 
 
 if __name__ == "__main__":
