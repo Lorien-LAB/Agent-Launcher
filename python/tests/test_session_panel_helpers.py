@@ -1,0 +1,102 @@
+import importlib.util
+import os
+import pathlib
+import sys
+import types
+import unittest
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+os.environ.setdefault("LOCALAPPDATA", str(ROOT / ".localappdata"))
+
+sys.modules.setdefault("pystray", types.SimpleNamespace())
+if "PIL" not in sys.modules:
+    pil = types.ModuleType("PIL")
+    pil.Image = types.SimpleNamespace()
+    sys.modules["PIL"] = pil
+sys.path.insert(0, str(ROOT))
+
+spec = importlib.util.spec_from_file_location(
+    "terminal_manager_under_test", ROOT / "terminal_manager.py"
+)
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(module)
+
+
+class SessionPanelHelperTests(unittest.TestCase):
+    def test_panel_and_card_dimensions_are_compact(self):
+        self.assertEqual(module.SESSION_PANEL_WIDTH, 195)
+        self.assertEqual(module.SessionCard.COLLAPSED_H, 36)
+        self.assertEqual(module.SessionCard.EXPANDED_H, 78)
+
+    def test_compact_branch(self):
+        self.assertEqual(module._compact_branch("main"), "")
+        self.assertEqual(module._compact_branch("feature"), "feature")
+        self.assertEqual(
+            module._compact_branch("feature/very-long-branch"),
+            "feature/ver…",
+        )
+
+    def test_pending_launch_matching_uses_cwd_and_nearest_creation_time(self):
+        pending = [
+            {"window_name": "agent-a", "cwd": r"D:\WorldQuant Brain", "launched_at": 100.0},
+            {"window_name": "agent-b", "cwd": r"D:\WorldQuant Brain", "launched_at": 120.0},
+            {"window_name": "agent-c", "cwd": r"D:\Other", "launched_at": 121.0},
+        ]
+        match = module._choose_pending_launch(
+            r"d:/worldquant brain", 123.0, pending
+        )
+        self.assertEqual(match["window_name"], "agent-b")
+
+    def test_pending_launch_matching_rejects_unrelated_or_stale_entries(self):
+        pending = [
+            {"window_name": "agent-a", "cwd": r"D:\WorldQuant Brain", "launched_at": 100.0},
+        ]
+        self.assertIsNone(
+            module._choose_pending_launch(r"D:\Other", 101.0, pending)
+        )
+        self.assertIsNone(
+            module._choose_pending_launch(r"D:\WorldQuant Brain", 500.0, pending)
+        )
+
+    def test_clamp_pct(self):
+        self.assertEqual(module._clamp_pct(-1), 0.0)
+        self.assertEqual(module._clamp_pct(42.5), 42.5)
+        self.assertEqual(module._clamp_pct(120), 100.0)
+        self.assertEqual(module._clamp_pct("bad"), 0.0)
+
+    def test_progress_fill_width(self):
+        self.assertEqual(module._progress_fill_width(200, 0), 0)
+        self.assertEqual(module._progress_fill_width(200, 50), 100)
+        self.assertEqual(module._progress_fill_width(200, 150), 200)
+
+    def test_running_progress_animates_whole_fill(self):
+        self.assertEqual(module._animated_progress_width(100, 0.0, False), 100)
+        self.assertEqual(module._animated_progress_width(100, 0.0, True), 1)
+        self.assertEqual(
+            module._animated_progress_width(100, 3.1415926535, True),
+            49,
+        )
+
+    def test_status_style(self):
+        self.assertEqual(module._status_style("running")[0], "RUNNING")
+        self.assertEqual(module._status_style("done")[0], "DONE")
+        self.assertEqual(module._status_style("idle")[0], "IDLE")
+
+    def test_context_text_color_thresholds(self):
+        self.assertEqual(module._context_text_color(69.9), module.C.panel_sub)
+        self.assertEqual(module._context_text_color(70), module.C.yellow)
+        self.assertEqual(module._context_text_color(85), module.C.orange)
+        self.assertEqual(module._context_text_color(95), module.C.red)
+
+    def test_closed_sessions_are_filtered(self):
+        closed = types.SimpleNamespace(status="closed", pid=123)
+        active = types.SimpleNamespace(status="busy", pid=123)
+        self.assertFalse(module._session_is_open(closed, lambda _pid: True))
+        self.assertTrue(module._session_is_open(active, lambda _pid: True))
+        self.assertFalse(module._session_is_open(active, lambda _pid: False))
+
+
+if __name__ == "__main__":
+    unittest.main()
