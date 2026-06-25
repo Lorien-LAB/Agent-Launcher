@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import tkinter as tk
+import tkinter.font as tkfont
 
 from launcher_theme import COLORS, METRICS
 from launcher_view_models import truncate_middle
@@ -26,6 +27,30 @@ def build_row_presentation(
     if not available:
         path_text = f"{path_text} · Unavailable"
     return DirectoryRowPresentation(name, path_text, not available)
+
+
+def fit_text_to_width(value: str, max_width: int, measure) -> str:
+    """Middle-elide text until the rendered width fits the reserved area."""
+    text = str(value)
+    available = max(0, int(max_width))
+    if measure(text) <= available:
+        return text
+    ellipsis = "…"
+    if available <= 0 or measure(ellipsis) > available:
+        return ""
+
+    low = 1
+    high = max(1, len(text))
+    best = ellipsis
+    while low <= high:
+        keep = (low + high) // 2
+        candidate = truncate_middle(text, keep)
+        if measure(candidate) <= available:
+            best = candidate
+            low = keep + 1
+        else:
+            high = keep - 1
+    return best
 
 
 def _resolved_theme(theme=None, colors=None):
@@ -76,7 +101,19 @@ class DirectoryRowWidget(tk.Canvas):
         self.presentation = build_row_presentation(
             row.path,
             self.available,
-            path_limit=48,
+            path_limit=72,
+        )
+        self._name_font = tkfont.Font(
+            family="Segoe UI Semibold",
+            size=9,
+        )
+        self._path_font = tkfont.Font(
+            family="Cascadia Code",
+            size=8,
+        )
+        self._symbol_font = tkfont.Font(
+            family="Segoe UI Symbol",
+            size=10,
         )
         super().__init__(
             master,
@@ -96,7 +133,11 @@ class DirectoryRowWidget(tk.Canvas):
         self.bind("<Return>", self._launch)
         self.bind("<space>", self._select)
         self.tag_bind("favorite", "<Button-1>", self._toggle_favorite)
-        self.tag_bind("favorite", "<Enter>", lambda _event: self.configure(cursor="hand2"))
+        self.tag_bind(
+            "favorite",
+            "<Enter>",
+            lambda _event: self.configure(cursor="hand2"),
+        )
         self._redraw()
 
     def _build_items(self):
@@ -121,7 +162,7 @@ class DirectoryRowWidget(tk.Canvas):
             0,
             text="▰",
             fill=self.theme["blue_light"],
-            font=("Segoe UI Symbol", 11),
+            font=self._symbol_font,
             anchor="w",
         )
         self._name = self.create_text(
@@ -129,7 +170,7 @@ class DirectoryRowWidget(tk.Canvas):
             0,
             text=self.presentation.name,
             fill=self.theme["text_primary"],
-            font=("Segoe UI Semibold", 10),
+            font=self._name_font,
             anchor="w",
         )
         self._path = self.create_text(
@@ -137,21 +178,37 @@ class DirectoryRowWidget(tk.Canvas):
             0,
             text=self.presentation.path_text,
             fill=self.theme["text_muted"],
-            font=("Cascadia Code", 8),
+            font=self._path_font,
             anchor="w",
+        )
+        self._star_hit = self.create_oval(
+            0,
+            0,
+            0,
+            0,
+            fill="",
+            outline="",
+            tags=("favorite",),
         )
         self._star = self.create_text(
             0,
             0,
             text="★" if self.favorite else "☆",
-            fill=self.theme["favorite"] if self.favorite else self.theme["text_muted"],
-            font=("Segoe UI Symbol", 11),
+            fill=(
+                self.theme["favorite"]
+                if self.favorite
+                else self.theme["text_muted"]
+            ),
+            font=self._symbol_font,
             tags=("favorite",),
         )
 
     def _redraw(self, _event=None):
         width = max(self.s(120), int(self.winfo_width()))
-        height = max(self.s(METRICS.directory_row_height), int(self.winfo_height()))
+        height = max(
+            self.s(METRICS.directory_row_height),
+            int(self.winfo_height()),
+        )
         self.coords(
             self._background,
             *rounded_rectangle_points(
@@ -171,10 +228,35 @@ class DirectoryRowWidget(tk.Canvas):
         )
         icon_x = self.s(14)
         text_x = self.s(36)
+        star_x = width - self.s(20)
+        favorite_radius = self.s(14)
+        text_width = max(
+            self.s(24),
+            star_x - text_x - self.s(22),
+        )
+        display_name = fit_text_to_width(
+            self.presentation.name,
+            text_width,
+            self._name_font.measure,
+        )
+        display_path = fit_text_to_width(
+            self.presentation.path_text,
+            text_width,
+            self._path_font.measure,
+        )
+        self.itemconfigure(self._name, text=display_name)
+        self.itemconfigure(self._path, text=display_path)
         self.coords(self._folder, icon_x, height // 2)
-        self.coords(self._name, text_x, self.s(15))
-        self.coords(self._path, text_x, self.s(31))
-        self.coords(self._star, width - self.s(18), height // 2)
+        self.coords(self._name, text_x, self.s(14))
+        self.coords(self._path, text_x, self.s(30))
+        self.coords(
+            self._star_hit,
+            star_x - favorite_radius,
+            height // 2 - favorite_radius,
+            star_x + favorite_radius,
+            height // 2 + favorite_radius,
+        )
+        self.coords(self._star, star_x, height // 2)
         self._render_state()
 
     def _render_state(self):
