@@ -29,6 +29,18 @@ def build_row_presentation(
     return DirectoryRowPresentation(name, path_text, not available)
 
 
+def _middle_elide(value: str, limit: int) -> str:
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    if limit <= 1:
+        return "…"[:limit]
+    content = limit - 1
+    head = (content + 1) // 2
+    tail = content - head
+    return f"{text[:head]}…{text[-tail:]}" if tail else f"{text[:head]}…"
+
+
 def fit_text_to_width(value: str, max_width: int, measure) -> str:
     """Middle-elide text until the rendered width fits the reserved area."""
     text = str(value)
@@ -44,7 +56,7 @@ def fit_text_to_width(value: str, max_width: int, measure) -> str:
     best = ellipsis
     while low <= high:
         keep = (low + high) // 2
-        candidate = truncate_middle(text, keep)
+        candidate = _middle_elide(text, keep)
         if measure(candidate) <= available:
             best = candidate
             low = keep + 1
