@@ -3,10 +3,11 @@ from __future__ import annotations
 import tkinter as tk
 
 from launcher_background import LauncherBackground
-from launcher_chrome import LauncherTitleBar
 from launcher_directory_list import DirectoryList
+from launcher_search_field import SearchField
 from launcher_settings_panel import LauncherSettingsPanel
-from launcher_widgets import GhostButton, SearchField
+from launcher_titlebar import LauncherTitleBar
+from launcher_widgets import GhostButton
 
 
 def build_top(view) -> None:
@@ -70,14 +71,14 @@ def build_top(view) -> None:
         on_select=view.callbacks.on_select,
         on_launch=view.callbacks.on_launch,
         on_favorite=view.callbacks.on_toggle_favorite,
-   )
+    )
     view.directory_list.grid(
         row=2,
         column=0,
         columnspan=2,
         sticky="nsew",
         padx=view.s(12),
-   )
+    )
 
     view.settings_panel = LauncherSettingsPanel(
         view.background,
