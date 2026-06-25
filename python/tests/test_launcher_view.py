@@ -1,5 +1,6 @@
 import unittest
 
+from launcher_directory_list import section_title
 from launcher_view import DirectoryRow, compose_home_rows, truncate_middle
 
 
@@ -24,6 +25,12 @@ class LauncherViewHelperTests(unittest.TestCase):
         self.assertLessEqual(len(result), 24)
         self.assertTrue(result.endswith("Project"))
         self.assertIn("…", result)
+
+    def test_directory_section_titles_are_uppercase(self):
+        self.assertEqual("FAVORITES", section_title("favorite"))
+        self.assertEqual("RECENT", section_title("recent"))
+        self.assertEqual("SEARCH RESULTS", section_title("search"))
+        self.assertEqual("CUSTOM", section_title("custom"))
 
 
 if __name__ == "__main__":
