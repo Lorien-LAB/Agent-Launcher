@@ -31,6 +31,7 @@ Agent-Launcher/
 | Session Monitor | 195px compact, borderless, always-on-top monitoring panel |
 | Reusable Session Cards | Session cards update in place by session ID |
 | Two-Line Collapsed Cards | Collapsed cards show only session name and context bar |
+| Border-Only Status | Collapsed status is indicated only by card-border color |
 | Hover Details | State, branch, agents, context percentage, token totals, and estimated cost |
 | Context Progress | Green-to-red whole-fill animated context usage bar |
 | Live Session Filtering | Closed sessions and exited PIDs are removed |
