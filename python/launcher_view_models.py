@@ -33,6 +33,31 @@ class LauncherCallbacks:
     on_copy_path: object
 
 
+@dataclass(frozen=True)
+class LayoutSpec:
+    sections: tuple[str, ...]
+    column_weights: tuple[int, int]
+    show_settings: bool
+
+
+def layout_spec(expanded: bool) -> LayoutSpec:
+    return LayoutSpec(
+        sections=(
+            ("titlebar", "search", "directory_list", "settings", "status")
+            if expanded
+            else (
+                "titlebar",
+                "search",
+                "directory_list",
+                "compact_footer",
+                "status",
+            )
+        ),
+        column_weights=(45, 55),
+        show_settings=bool(expanded),
+    )
+
+
 def compose_home_rows(favorites: list[str], recents: list[str]) -> list[DirectoryRow]:
     rows: list[DirectoryRow] = []
     seen: set[str] = set()
