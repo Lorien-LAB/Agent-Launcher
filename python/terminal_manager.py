@@ -6,6 +6,7 @@ focus behavior.
 """
 import time
 
+import session_panel_chrome as _panel_chrome
 import session_panel_layout as _panel_layout
 import session_panel_ui as _panel_ui
 import terminal_focus as _terminal_focus
@@ -15,6 +16,7 @@ import terminal_manager_core as _core
 _panel_ui.apply_session_panel_overrides(_core)
 _panel_layout.apply_compact_layout(_core)
 _terminal_focus.apply_terminal_focus(_core)
+_panel_chrome.apply_panel_chrome(_core)
 
 
 def _smooth_tick_height(self):
@@ -61,8 +63,6 @@ def _smooth_tick_height(self):
 
 _core.SessionCard._tick_height = _smooth_tick_height
 
-# Re-export the core module's public and testable helpers so existing imports
-# of ``terminal_manager`` continue to work.
 for _name in dir(_core):
     if not _name.startswith("__"):
         globals()[_name] = getattr(_core, _name)
