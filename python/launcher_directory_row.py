@@ -198,7 +198,7 @@ class DirectoryRowWidget(tk.Canvas):
             0,
             0,
             0,
-            fill="",
+            fill=self.theme["surface_1"],
             outline="",
             tags=("favorite",),
         )
@@ -297,6 +297,7 @@ class DirectoryRowWidget(tk.Canvas):
         else:
             background = self.theme["surface_1"]
         self.itemconfigure(self._background, fill=background)
+        self.itemconfigure(self._star_hit, fill=background)
         self.itemconfigure(
             self._selected_bar,
             state="normal" if self.selected else "hidden",
