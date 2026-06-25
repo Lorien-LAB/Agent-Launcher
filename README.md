@@ -21,6 +21,14 @@ Agent-Launcher/
 └── .gitignore
 ```
 
+## Current Session Monitor
+
+- 195 logical pixels wide before DPI scaling.
+- Collapsed cards show only the session name and context progress bar.
+- Branch, agents, state, percentage, token totals, and cost appear only after hover expansion.
+- Closed sessions and exited PIDs are removed.
+- Clicking a card resolves the matching Windows Terminal from the session PID and raises it without moving or resizing the window.
+
 ## Quick Start
 
 ```batch
