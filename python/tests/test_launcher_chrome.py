@@ -12,6 +12,7 @@ from launcher_chrome import (
     calculate_drag_position,
     restore_for_drag,
 )
+from launcher_windows_icons import caption_glyphs, windows_icon_font
 
 
 class LauncherChromeTests(unittest.TestCase):
@@ -40,6 +41,23 @@ class LauncherChromeTests(unittest.TestCase):
         self.assertEqual(WindowBounds(20, 30, 820, 560), state.restore_bounds)
         state.mark_restored()
         self.assertFalse(state.maximized)
+
+    def test_windows_caption_glyphs_use_system_icon_codepoints(self):
+        glyphs = caption_glyphs()
+        self.assertEqual("\ue921", glyphs.minimize)
+        self.assertEqual("\ue922", glyphs.maximize)
+        self.assertEqual("\ue923", glyphs.restore)
+        self.assertEqual("\ue8bb", glyphs.close)
+
+    def test_windows_icon_font_prefers_fluent_then_mdl2(self):
+        self.assertEqual(
+            "Segoe Fluent Icons",
+            windows_icon_font({"Segoe MDL2 Assets", "Segoe Fluent Icons"}),
+        )
+        self.assertEqual(
+            "Segoe MDL2 Assets",
+            windows_icon_font({"Segoe UI Symbol", "Segoe MDL2 Assets"}),
+        )
 
 
 class FakeRoot:
