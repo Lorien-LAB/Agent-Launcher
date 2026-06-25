@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from launcher_state import normalize_path
+from launcher_theme import COMPACT_LOGICAL_SIZE, EXPANDED_LOGICAL_SIZE
 
 
-COMPACT_SIZE = (360, 320)
-EXPANDED_SIZE = (720, 520)
+COMPACT_SIZE = COMPACT_LOGICAL_SIZE
+EXPANDED_SIZE = EXPANDED_LOGICAL_SIZE
 
 
 @dataclass(frozen=True)
