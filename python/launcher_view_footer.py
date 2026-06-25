@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from launcher_widgets import PrimaryButton, RoundedCard
+from launcher_branding import GlassBrandButton
+from launcher_widgets import RoundedCard
 
 
 def build_footer(view) -> None:
@@ -11,7 +12,7 @@ def build_footer(view) -> None:
         view.background,
         theme=theme,
         scale=view.s,
-        height=view.s(88),
+        height=view.s(94),
         padding=10,
     )
     view.compact_footer.grid(
@@ -51,7 +52,7 @@ def build_footer(view) -> None:
         pady=(view.s(3), view.s(6)),
     )
 
-    view.compact_claude_button = PrimaryButton(
+    view.compact_claude_button = GlassBrandButton(
         footer,
         role="claude",
         text="Claude Code",
@@ -59,7 +60,7 @@ def build_footer(view) -> None:
         theme=theme,
         scale=view.s,
         width=145,
-        height=34,
+        height=38,
     )
     view.compact_claude_button.grid(
         row=2,
@@ -68,7 +69,7 @@ def build_footer(view) -> None:
         padx=(0, view.s(4)),
     )
 
-    view.compact_hermes_button = PrimaryButton(
+    view.compact_hermes_button = GlassBrandButton(
         footer,
         role="hermes",
         text="Hermes",
@@ -76,7 +77,7 @@ def build_footer(view) -> None:
         theme=theme,
         scale=view.s,
         width=120,
-        height=34,
+        height=38,
     )
     view.compact_hermes_button.grid(
         row=2,
