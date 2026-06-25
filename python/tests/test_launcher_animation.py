@@ -1,3 +1,4 @@
+import _bootstrap  # noqa: F401
 import unittest
 
 from launcher_animation import WindowAnimator, clamp_target_size, ease_out_cubic
