@@ -13,6 +13,7 @@ import uuid
 from session_monitor import SESSIONS_DIR
 
 
+REGISTRY_VERSION = 2
 REGISTRY_PATH = os.path.join(
     os.path.expanduser("~"), ".agent-launcher", "session-windows.json"
 )
@@ -40,7 +41,6 @@ def choose_pending_launch(cwd: str, created_at: float, pending: list[dict]):
 
 
 def _session_created_at(snapshot) -> float:
-    """Use the session metadata file creation time for launch correlation."""
     try:
         path = os.path.join(SESSIONS_DIR, f"{int(snapshot.pid)}.json")
         return os.path.getctime(path)
@@ -49,22 +49,31 @@ def _session_created_at(snapshot) -> float:
 
 
 class SessionWindowRegistry:
-    """Persist launch-token to Claude-session mappings across app restarts."""
+    """Persist exact launch-window and Claude-session mappings."""
 
     def __init__(self, path=REGISTRY_PATH):
         self.path = path
         self._lock = threading.RLock()
-        self._data = {"version": 1, "pending": [], "sessions": {}}
+        self._data = {
+            "version": REGISTRY_VERSION,
+            "pending": [],
+            "sessions": {},
+        }
         self._load()
 
     def _load(self):
         try:
             with open(self.path, "r", encoding="utf-8") as handle:
                 loaded = json.load(handle)
-            if isinstance(loaded, dict):
-                self._data["pending"] = list(loaded.get("pending", []))
-                self._data["sessions"] = dict(loaded.get("sessions", {}))
-        except (OSError, json.JSONDecodeError, TypeError):
+            # Version 1 could contain incorrect cwd-based mappings. Do not reuse
+            # them, otherwise the new exact-HWND implementation remains wrong.
+            if not isinstance(loaded, dict):
+                return
+            if int(loaded.get("version", 0) or 0) != REGISTRY_VERSION:
+                return
+            self._data["pending"] = list(loaded.get("pending", []))
+            self._data["sessions"] = dict(loaded.get("sessions", {}))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
             pass
 
     def _save(self):
@@ -82,11 +91,38 @@ class SessionWindowRegistry:
             "title_token": title_token,
             "cwd": cwd,
             "launched_at": float(launched_at or time.time()),
+            "hwnd": 0,
         }
         with self._lock:
             self._data["pending"].append(entry)
             self._save()
         return entry
+
+    def attach_hwnd(self, window_name, hwnd):
+        """Attach the exact newly-created HWND to pending and mapped records."""
+        hwnd_value = int(hwnd or 0)
+        if not hwnd_value:
+            return
+        with self._lock:
+            changed = False
+            for entry in self._data["pending"]:
+                if entry.get("window_name") == window_name:
+                    entry["hwnd"] = hwnd_value
+                    changed = True
+            for mapping in self._data["sessions"].values():
+                if mapping.get("window_name") == window_name:
+                    mapping["hwnd"] = hwnd_value
+                    changed = True
+            if changed:
+                self._save()
+
+    def update_session_hwnd(self, session_id, hwnd):
+        with self._lock:
+            mapping = self._data["sessions"].get(str(session_id))
+            if not mapping:
+                return
+            mapping["hwnd"] = int(hwnd or 0)
+            self._save()
 
     def remove_pending(self, window_name):
         with self._lock:
@@ -122,6 +158,7 @@ class SessionWindowRegistry:
                     "title_token": match["title_token"],
                     "cwd": getattr(snapshot, "cwd", ""),
                     "mapped_at": now,
+                    "hwnd": int(match.get("hwnd", 0) or 0),
                 }
                 pending = [
                     entry for entry in pending
@@ -156,9 +193,11 @@ def _enum_terminal_windows(core):
     user32.GetClassNameW.argtypes = [
         wintypes.HWND, wintypes.LPWSTR, ctypes.c_int
     ]
+    user32.GetClassNameW.restype = ctypes.c_int
     user32.GetWindowTextW.argtypes = [
         wintypes.HWND, wintypes.LPWSTR, ctypes.c_int
     ]
+    user32.GetWindowTextW.restype = ctypes.c_int
 
     windows = []
 
@@ -169,11 +208,15 @@ def _enum_terminal_windows(core):
         if class_buffer.value == core.WT_CLASS:
             title_buffer = ctypes.create_unicode_buffer(512)
             user32.GetWindowTextW(hwnd, title_buffer, 511)
-            windows.append((hwnd, title_buffer.value))
+            windows.append((int(hwnd), title_buffer.value))
         return True
 
     user32.EnumWindows(callback, 0)
     return windows
+
+
+def _terminal_hwnd_set(core):
+    return {hwnd for hwnd, _title in _enum_terminal_windows(core)}
 
 
 def find_terminal_hwnd_by_token(core, title_token):
@@ -185,7 +228,6 @@ def find_terminal_hwnd_by_token(core, title_token):
 
 
 def find_unique_terminal_hwnd_by_cwd(core, cwd):
-    """Legacy fallback; refuse to guess when duplicate titles exist."""
     directory_name = os.path.basename(cwd or "").casefold()
     if not directory_name:
         return None
@@ -196,11 +238,26 @@ def find_unique_terminal_hwnd_by_cwd(core, cwd):
     return matches[0] if len(matches) == 1 else None
 
 
+def _is_terminal_hwnd(core, hwnd, title_token=""):
+    hwnd_value = int(hwnd or 0)
+    if not hwnd_value or os.name != "nt":
+        return False
+    for current_hwnd, title in _enum_terminal_windows(core):
+        if current_hwnd != hwnd_value:
+            continue
+        if title_token and title_token.casefold() not in title.casefold():
+            # The HWND may have been recycled after the old window closed.
+            return False
+        return True
+    return False
+
+
 def raise_hwnd_preserving_geometry(hwnd) -> bool:
     """Raise a window without changing its saved position or dimensions."""
     if os.name != "nt":
         return False
     try:
+        hwnd = wintypes.HWND(int(hwnd))
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
         user32.IsWindow.argtypes = [wintypes.HWND]
@@ -208,6 +265,7 @@ def raise_hwnd_preserving_geometry(hwnd) -> bool:
         user32.IsIconic.argtypes = [wintypes.HWND]
         user32.IsIconic.restype = wintypes.BOOL
         user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.ShowWindow.restype = wintypes.BOOL
         user32.GetForegroundWindow.restype = wintypes.HWND
         user32.GetWindowThreadProcessId.argtypes = [
             wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
@@ -216,12 +274,15 @@ def raise_hwnd_preserving_geometry(hwnd) -> bool:
         user32.AttachThreadInput.argtypes = [
             wintypes.DWORD, wintypes.DWORD, wintypes.BOOL
         ]
+        user32.AttachThreadInput.restype = wintypes.BOOL
         user32.SetWindowPos.argtypes = [
             wintypes.HWND, wintypes.HWND,
             ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
             wintypes.UINT,
         ]
         user32.SetWindowPos.restype = wintypes.BOOL
+        user32.BringWindowToTop.argtypes = [wintypes.HWND]
+        user32.BringWindowToTop.restype = wintypes.BOOL
         user32.SetForegroundWindow.argtypes = [wintypes.HWND]
         user32.SetForegroundWindow.restype = wintypes.BOOL
         kernel32.GetCurrentThreadId.restype = wintypes.DWORD
@@ -266,7 +327,9 @@ def raise_hwnd_preserving_geometry(hwnd) -> bool:
 
 
 def _focus_named_window(window_name):
-    """Ask Windows Terminal to focus its uniquely named window."""
+    """Exact named-window fallback when an HWND cannot be recovered."""
+    if not window_name:
+        return False
     try:
         subprocess.Popen(
             ["wt", "-w", window_name, "focus-tab", "-t", "0"],
@@ -277,8 +340,27 @@ def _focus_named_window(window_name):
         return False
 
 
+def _capture_new_window(core, before_hwnds, window_name, title_token):
+    """Capture and persist the exact HWND created by one launcher action."""
+    for _attempt in range(80):
+        time.sleep(0.1)
+        windows = _enum_terminal_windows(core)
+        token_matches = [
+            hwnd for hwnd, title in windows
+            if title_token.casefold() in title.casefold()
+        ]
+        if len(token_matches) == 1:
+            _REGISTRY.attach_hwnd(window_name, token_matches[0])
+            return
+
+        new_hwnds = {hwnd for hwnd, _title in windows} - set(before_hwnds)
+        if len(new_hwnds) == 1:
+            _REGISTRY.attach_hwnd(window_name, new_hwnds.pop())
+            return
+
+
 def apply_terminal_focus(core) -> None:
-    """Install unique launch naming, persistent mapping, and card activation."""
+    """Install exact HWND capture, persistent mapping, and card activation."""
     original_on_stats_update = core.TerminalManager._on_stats_update
 
     def launch_in_terminal(dir_path, exe_path, args, title):
@@ -300,6 +382,7 @@ def apply_terminal_focus(core) -> None:
             os.environ.get("TEMP", os.path.expanduser("~")),
             f"launch_{token}.ps1",
         )
+        before_hwnds = _terminal_hwnd_set(core)
 
         try:
             with open(temporary, "w", encoding="utf-8") as handle:
@@ -324,6 +407,13 @@ def apply_terminal_focus(core) -> None:
             except OSError:
                 pass
             return False
+
+        threading.Thread(
+            target=_capture_new_window,
+            args=(core, before_hwnds, window_name, title_token),
+            daemon=True,
+            name=f"hwnd-capture-{token}",
+        ).start()
 
         def cleanup():
             time.sleep(5)
@@ -360,18 +450,31 @@ def apply_terminal_focus(core) -> None:
         cwd = getattr(snapshot, "cwd", "") if snapshot else str(target)
 
         if snapshot:
+            # Reconcile once more at click time in case this card appeared before
+            # the normal three-second monitor callback persisted its mapping.
+            _REGISTRY.reconcile([snapshot])
             mapping = _REGISTRY.lookup(snapshot.session_id)
             if mapping:
-                hwnd = find_terminal_hwnd_by_token(
-                    core, mapping.get("title_token", "")
-                )
-                if hwnd and raise_hwnd_preserving_geometry(hwnd):
-                    return
+                stored_hwnd = int(mapping.get("hwnd", 0) or 0)
+                title_token = mapping.get("title_token", "")
+                if _is_terminal_hwnd(core, stored_hwnd, title_token):
+                    if raise_hwnd_preserving_geometry(stored_hwnd):
+                        return
+
+                recovered_hwnd = find_terminal_hwnd_by_token(core, title_token)
+                if recovered_hwnd:
+                    _REGISTRY.update_session_hwnd(
+                        snapshot.session_id, recovered_hwnd
+                    )
+                    if raise_hwnd_preserving_geometry(recovered_hwnd):
+                        return
+
+                # Named-window targeting is exact, unlike cwd matching.
                 if _focus_named_window(mapping.get("window_name", "")):
                     return
 
-        # Only use the old title fallback when it is unambiguous. Never choose
-        # one of several same-directory windows, which caused wrong-session focus.
+        # Legacy fallback is deliberately disabled when multiple windows share
+        # a directory. It is safer to do nothing than open the wrong session.
         hwnd = find_unique_terminal_hwnd_by_cwd(core, cwd)
         if hwnd:
             raise_hwnd_preserving_geometry(hwnd)
