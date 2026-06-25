@@ -89,7 +89,6 @@ def apply_compact_layout(core) -> None:
             width=-self.s(18),
         )
 
-        # Collapsed row 1: session name only.
         self._name_label = tk.Label(
             self._content,
             text="",
@@ -100,7 +99,6 @@ def apply_compact_layout(core) -> None:
         )
         self._name_label.pack(fill="x")
 
-        # Collapsed row 2: context bar only.
         self._progress_canvas = tk.Canvas(
             self._content,
             height=self.s(6),
@@ -113,8 +111,6 @@ def apply_compact_layout(core) -> None:
             "<Configure>", lambda _event: self._draw_progress(0.0)
         )
 
-        # Expanded-only details. It is genuinely removed from geometry while
-        # collapsed instead of merely being clipped by the card height.
         self._details = tk.Frame(self._content, bg=colors.panel_card)
 
         first_detail_row = tk.Frame(self._details, bg=colors.panel_card)
@@ -173,8 +169,6 @@ def apply_compact_layout(core) -> None:
         self._animation_started_at = time.perf_counter()
         self._apply_background()
 
-        # Reserve the final panel space once before expansion. The outer panel
-        # shrinks only after collapse finishes, avoiding transparent-window trails.
         if hovered:
             self.on_height_changed()
         self._start_height_animation()
@@ -205,7 +199,11 @@ def apply_compact_layout(core) -> None:
         state_text, state_color, _border = core._status_style(display_state)
         self._pct_label.configure(
             text=f"{state_text} · {pct:.1f}%",
-            fg=state_color if display_state != "idle" else core._context_text_color(pct),
+            fg=(
+                state_color
+                if display_state != "idle"
+                else core._context_text_color(pct)
+            ),
         )
         self._token_label.configure(
             text=(
@@ -240,9 +238,43 @@ def apply_compact_layout(core) -> None:
             if isinstance(child, tk.Frame):
                 child.configure(bg=bg)
 
+    def compact_draw_card(self, phase):
+        if self._destroyed:
+            return
+        try:
+            canvas = self._card_canvas
+            width = canvas.winfo_width()
+            height = self._current_h
+            if width < self.s(30) or height < self.s(18):
+                return
+
+            canvas.delete("all")
+            bg = colors.panel_hover if self.hovered else colors.panel_card
+            _label, _accent, border = core._status_style(self.display_state)
+            if self.hovered:
+                border = colors.panel_focus
+            elif self.display_state == "running":
+                strength = 0.18 + 0.18 * (0.5 + 0.5 * core.math.sin(phase))
+                border = core._blend_hex(
+                    colors.panel_busy,
+                    colors.panel_focus,
+                    strength,
+                )
+
+            core._round_rect(
+                canvas,
+                1,
+                1,
+                width - 2,
+                height - 2,
+                self.s(12),
+                fill=bg,
+                outline=border,
+            )
+        except tk.TclError:
+            pass
+
     def compact_draw_all(self, phase):
-        # There is deliberately no status star in the collapsed card. State is
-        # conveyed through the card border and shown as text only after expansion.
         self._draw_card(phase)
         self._draw_progress(phase)
 
@@ -264,13 +296,10 @@ def apply_compact_layout(core) -> None:
     def compact_create_stats_panel(self):
         original_create_stats_panel(self)
 
-        # The original viewport started 64 logical pixels below the header,
-        # leaving a large gap at high DPI. Move it directly beneath the scan line.
         body_y = self._panel_pad + self.s(48)
         self._body_y0 = body_y
         self._panel_viewport.place_configure(y=body_y)
 
-        # Keep the two header rows readable at 195 logical pixels.
         self._clock_label.configure(font=("Consolas", 9, "bold"))
         self._active_summary.configure(font=("Consolas", 7, "bold"))
         self._idle_summary.configure(font=("Consolas", 7, "bold"))
@@ -281,7 +310,10 @@ def apply_compact_layout(core) -> None:
             header = self._clock_label.master.master
             for child in header.winfo_children():
                 for widget in child.winfo_children():
-                    if isinstance(widget, tk.Label) and widget.cget("text") == "SESSION MONITOR":
+                    if (
+                        isinstance(widget, tk.Label)
+                        and widget.cget("text") == "SESSION MONITOR"
+                    ):
                         widget.configure(font=("Segoe UI", 9, "bold"))
         except tk.TclError:
             pass
@@ -292,6 +324,7 @@ def apply_compact_layout(core) -> None:
     card_cls._apply_hover = compact_apply_hover
     card_cls.update_snapshot = compact_update_snapshot
     card_cls._apply_background = compact_apply_background
+    card_cls._draw_card = compact_draw_card
     card_cls._draw_all = compact_draw_all
     card_cls._on_click = compact_on_click
     card_cls.grid_at = compact_grid_at
