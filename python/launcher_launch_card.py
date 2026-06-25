@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import tkinter as tk
 
+from launcher_branding import GlassBrandButton
 from launcher_state import LaunchOptions
-from launcher_widgets import PrimaryButton, RoundedCard, SegmentedControl, ToggleSwitch
+from launcher_widgets import RoundedCard, SegmentedControl, ToggleSwitch
 
 
 class LaunchOptionsCard(RoundedCard):
@@ -18,7 +19,7 @@ class LaunchOptionsCard(RoundedCard):
             master,
             theme=theme,
             scale=scale,
-            height=scale(166),
+            height=scale(170),
             padding=8,
         )
         body = self.content
@@ -93,7 +94,7 @@ class LaunchOptionsCard(RoundedCard):
         buttons.grid(row=4, column=0, sticky="ew", pady=(scale(5), 0))
         buttons.grid_columnconfigure(0, weight=1, uniform="launch")
         buttons.grid_columnconfigure(1, weight=1, uniform="launch")
-        self.claude_button = PrimaryButton(
+        self.claude_button = GlassBrandButton(
             buttons,
             role="claude",
             text="Claude Code",
@@ -101,10 +102,10 @@ class LaunchOptionsCard(RoundedCard):
             theme=theme,
             scale=scale,
             width=135,
-            height=30,
+            height=34,
         )
         self.claude_button.grid(row=0, column=0, sticky="ew", padx=(0, scale(4)))
-        self.hermes_button = PrimaryButton(
+        self.hermes_button = GlassBrandButton(
             buttons,
             role="hermes",
             text="Hermes",
@@ -112,7 +113,7 @@ class LaunchOptionsCard(RoundedCard):
             theme=theme,
             scale=scale,
             width=115,
-            height=30,
+            height=34,
         )
         self.hermes_button.grid(row=0, column=1, sticky="ew", padx=(scale(4), 0))
         self._update_hint()
