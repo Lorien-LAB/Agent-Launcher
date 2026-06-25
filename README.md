@@ -1,23 +1,23 @@
 # Agent Launcher
 
-Desktop GUI for launching Claude Code or Hermes in working directories, with a real-time Session Monitor panel and Windows Terminal background customization.
+Python desktop launcher with a compact real-time Session Monitor.
 
-## Current Session Monitor
+## Session Monitor
 
-- 195 logical pixels wide before DPI scaling.
+- 195 logical pixels wide.
 - Collapsed cards show only the session name and context progress bar.
-- Branch, agents, state, percentage, token totals, and cost appear only after hover expansion.
+- Hover reveals branch, agents, state, context percentage, token totals, and cost.
 - Closed sessions and exited PIDs are removed.
-- Clicking a card resolves the matching Windows Terminal from the session PID and raises it without moving or resizing the window.
+- Clicking a card raises the matching Windows Terminal without moving or resizing it.
 
-## Quick Start
+## Run
 
 ```batch
 cd python
 run.bat
 ```
 
-## Development Checks
+## Checks
 
 ```bash
 python -m unittest discover -s python/tests -v
