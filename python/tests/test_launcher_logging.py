@@ -1,9 +1,16 @@
+import _bootstrap  # noqa: F401
 import logging
 import pathlib
 import tempfile
 import unittest
 
 from launcher_logging import configure_launcher_logger
+
+
+def close_logger(logger):
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
 
 
 class LauncherLoggingTests(unittest.TestCase):
@@ -17,6 +24,7 @@ class LauncherLoggingTests(unittest.TestCase):
             log_path = pathlib.Path(tmp) / "agent-launcher.log"
             self.assertTrue(log_path.exists())
             self.assertIn("indexed 12 directories", log_path.read_text(encoding="utf-8"))
+            close_logger(logger)
 
     def test_reconfiguration_does_not_duplicate_handlers(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -26,6 +34,7 @@ class LauncherLoggingTests(unittest.TestCase):
             self.assertIs(first, second)
             self.assertEqual(len(second.handlers), 1)
             self.assertIsInstance(second.handlers[0], logging.Handler)
+            close_logger(second)
 
 
 if __name__ == "__main__":
