@@ -16,6 +16,7 @@ class GlowSpec:
 
 
 def glow_spec_for_mode(expanded: bool, width: int, height: int) -> list[GlowSpec]:
+    """Return glow geometry in logical pixels."""
     width = max(1, int(width))
     height = max(1, int(height))
     glows = [
@@ -41,7 +42,11 @@ def glow_spec_for_mode(expanded: bool, width: int, height: int) -> list[GlowSpec
 
 
 def blend_for_glow(background: str, glow: str, opacity: float) -> str:
-    return interpolate_hex(background, glow, max(0.0, min(1.0, float(opacity))))
+    return interpolate_hex(
+        background,
+        glow,
+        max(0.0, min(1.0, float(opacity))),
+    )
 
 
 class LauncherBackground(tk.Canvas):
@@ -84,8 +89,15 @@ class LauncherBackground(tk.Canvas):
         if not force and render_key == self._last_render_key:
             return
         self._last_render_key = render_key
+        scale_factor = max(0.01, float(self.s(100)) / 100.0)
+        logical_width = max(1, round(width / scale_factor))
+        logical_height = max(1, round(height / scale_factor))
         self.delete("ambient_glow")
-        for glow in glow_spec_for_mode(self.expanded, width, height):
+        for glow in glow_spec_for_mode(
+            self.expanded,
+            logical_width,
+            logical_height,
+        ):
             self._draw_glow(glow)
         self.tag_lower("ambient_glow")
 
@@ -93,17 +105,19 @@ class LauncherBackground(tk.Canvas):
         background = self.theme["window_bg"]
         accent = self.theme[spec.role]
         rings = 18
-        # Draw the widest, faintest rings first so the center remains strongest.
+        center_x = self.s(spec.center_x)
+        center_y = self.s(spec.center_y)
+        # Draw widest/faintest rings first, strongest center last.
         for index in range(rings, 0, -1):
             fraction = index / rings
             radius = max(1, round(self.s(spec.radius) * fraction))
             strength = spec.opacity * (1.0 - 0.84 * fraction)
             color = blend_for_glow(background, accent, strength)
             self.create_oval(
-                self.s(spec.center_x) - radius,
-                self.s(spec.center_y) - radius,
-                self.s(spec.center_x) + radius,
-                self.s(spec.center_y) + radius,
+                center_x - radius,
+                center_y - radius,
+                center_x + radius,
+                center_y + radius,
                 fill=color,
                 outline="",
                 tags=("ambient_glow",),
