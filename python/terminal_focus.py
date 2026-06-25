@@ -44,7 +44,24 @@ def windows_process_parent_map():
         ]
 
     kernel32 = ctypes.windll.kernel32
+    kernel32.CreateToolhelp32Snapshot.argtypes = [
+        wintypes.DWORD,
+        wintypes.DWORD,
+    ]
     kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ProcessEntry32W),
+    ]
+    kernel32.Process32FirstW.restype = wintypes.BOOL
+    kernel32.Process32NextW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ProcessEntry32W),
+    ]
+    kernel32.Process32NextW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
     snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
     invalid_handle = ctypes.c_void_p(-1).value
     if not snapshot or snapshot == invalid_handle:
@@ -63,6 +80,28 @@ def windows_process_parent_map():
     return parents
 
 
+def _configure_user32(user32, enum_proc_type):
+    user32.EnumWindows.argtypes = [enum_proc_type, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
+    user32.GetClassNameW.argtypes = [
+        wintypes.HWND,
+        wintypes.LPWSTR,
+        ctypes.c_int,
+    ]
+    user32.GetClassNameW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [
+        wintypes.HWND,
+        wintypes.LPWSTR,
+        ctypes.c_int,
+    ]
+    user32.GetWindowTextW.restype = ctypes.c_int
+    user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
+
 def find_terminal_hwnd_for_session_pid(core, session_pid):
     """Resolve a Claude PID to its owning Windows Terminal top-level window."""
     if os.name != "nt":
@@ -79,6 +118,7 @@ def find_terminal_hwnd_for_session_pid(core, session_pid):
         wintypes.HWND,
         wintypes.LPARAM,
     )
+    _configure_user32(user32, enum_proc_type)
 
     @enum_proc_type
     def enum_window(hwnd, _lparam):
@@ -107,6 +147,45 @@ def raise_hwnd_preserving_geometry(hwnd) -> bool:
     try:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
+
+        user32.IsWindow.argtypes = [wintypes.HWND]
+        user32.IsWindow.restype = wintypes.BOOL
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        user32.IsIconic.restype = wintypes.BOOL
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.ShowWindow.restype = wintypes.BOOL
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.AttachThreadInput.argtypes = [
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.BOOL,
+        ]
+        user32.AttachThreadInput.restype = wintypes.BOOL
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND,
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        ]
+        user32.SetWindowPos.restype = wintypes.BOOL
+        user32.BringWindowToTop.argtypes = [wintypes.HWND]
+        user32.BringWindowToTop.restype = wintypes.BOOL
+        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        user32.SetForegroundWindow.restype = wintypes.BOOL
+        user32.SetActiveWindow.argtypes = [wintypes.HWND]
+        user32.SetActiveWindow.restype = wintypes.HWND
+        user32.SetFocus.argtypes = [wintypes.HWND]
+        user32.SetFocus.restype = wintypes.HWND
+        kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+
         if not user32.IsWindow(hwnd):
             return False
 
@@ -133,11 +212,9 @@ def raise_hwnd_preserving_geometry(hwnd) -> bool:
 
         try:
             flags = 0x0001 | 0x0002 | 0x0040 | 0x0200
-            topmost = ctypes.c_void_p(-1)
-            not_topmost = ctypes.c_void_p(-2)
+            topmost = wintypes.HWND(-1)
+            not_topmost = wintypes.HWND(-2)
 
-            # Toggle topmost only long enough to move the window above others.
-            # NOMOVE and NOSIZE preserve its existing geometry.
             first_raise = user32.SetWindowPos(
                 hwnd, topmost, 0, 0, 0, 0, flags
             )
@@ -176,6 +253,7 @@ def find_terminal_hwnd_by_title(core, cwd):
         wintypes.HWND,
         wintypes.LPARAM,
     )
+    _configure_user32(user32, enum_proc_type)
 
     @enum_proc_type
     def enum_window(hwnd, _lparam):
