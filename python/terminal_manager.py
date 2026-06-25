@@ -7,6 +7,7 @@ focus behavior.
 import time
 
 import session_panel_chrome as _panel_chrome
+import session_panel_details as _panel_details
 import session_panel_layout as _panel_layout
 import session_panel_ui as _panel_ui
 import terminal_focus as _terminal_focus
@@ -17,6 +18,7 @@ _panel_ui.apply_session_panel_overrides(_core)
 _panel_layout.apply_compact_layout(_core)
 _terminal_focus.apply_terminal_focus(_core)
 _panel_chrome.apply_panel_chrome(_core)
+_panel_details.apply_dynamic_details(_core)
 
 
 def _smooth_tick_height(self):
