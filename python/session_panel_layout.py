@@ -196,14 +196,9 @@ def apply_compact_layout(core) -> None:
         self._set_badge(self._agent_badge, agents)
 
         pct = core._clamp_pct(snapshot.context_pct)
-        state_text, state_color, _border = core._status_style(display_state)
         self._pct_label.configure(
-            text=f"{state_text} · {pct:.1f}%",
-            fg=(
-                state_color
-                if display_state != "idle"
-                else core._context_text_color(pct)
-            ),
+            text=f"{pct:.1f}%",
+            fg=core._context_text_color(pct),
         )
         self._token_label.configure(
             text=(
@@ -261,16 +256,50 @@ def apply_compact_layout(core) -> None:
                     strength,
                 )
 
+            x1, y1 = 1, 1
+            x2, y2 = width - 2, height - 2
+            radius = min(
+                self.s(12),
+                max(1, (x2 - x1) // 2),
+                max(1, (y2 - y1) // 2),
+            )
+            diameter = radius * 2
+
+            # Fill shapes have no outline. The previous helper forwarded the
+            # border into both overlapping rectangles, producing the internal
+            # horizontal and vertical lines visible inside expanded cards.
             core._round_rect(
                 canvas,
-                1,
-                1,
-                width - 2,
-                height - 2,
-                self.s(12),
+                x1,
+                y1,
+                x2,
+                y2,
+                radius,
                 fill=bg,
-                outline=border,
+                outline="",
             )
+
+            # Draw only the true outer perimeter.
+            canvas.create_arc(
+                x1, y1, x1 + diameter, y1 + diameter,
+                start=90, extent=90, style="arc", outline=border,
+            )
+            canvas.create_arc(
+                x2 - diameter, y1, x2, y1 + diameter,
+                start=0, extent=90, style="arc", outline=border,
+            )
+            canvas.create_arc(
+                x2 - diameter, y2 - diameter, x2, y2,
+                start=270, extent=90, style="arc", outline=border,
+            )
+            canvas.create_arc(
+                x1, y2 - diameter, x1 + diameter, y2,
+                start=180, extent=90, style="arc", outline=border,
+            )
+            canvas.create_line(x1 + radius, y1, x2 - radius, y1, fill=border)
+            canvas.create_line(x1 + radius, y2, x2 - radius, y2, fill=border)
+            canvas.create_line(x1, y1 + radius, x1, y2 - radius, fill=border)
+            canvas.create_line(x2, y1 + radius, x2, y2 - radius, fill=border)
         except tk.TclError:
             pass
 
