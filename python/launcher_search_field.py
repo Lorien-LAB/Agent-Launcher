@@ -49,12 +49,12 @@ class SearchField(tk.Canvas):
         self._hovered = False
         family = windows_icon_font(set(tkfont.families(master)))
         self._icon_font = tkfont.Font(
-            master=master,
+            root=master,
             family=family,
             size=self.metrics.font_size,
         )
         self._clear_font = tkfont.Font(
-            master=master,
+            root=master,
             family=family,
             size=12,
         )
