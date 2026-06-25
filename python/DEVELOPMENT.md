@@ -20,7 +20,7 @@ Collapsed cards are 36 logical pixels high and contain exactly two content rows:
 1. session name;
 2. context progress bar.
 
-There is no status star, RUNNING/IDLE text, branch, agent count, percentage, token text, path, model, or update time in the collapsed state. Status is indicated only by the card border color.
+There is no status star, RUNNING/IDLE text, branch, agent count, percentage, token text, path, model, update time, or decorative status rail in the collapsed state. Status is indicated only by the card border color.
 
 Hover expands a card to 78 logical pixels and reveals:
 
