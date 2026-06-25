@@ -38,13 +38,26 @@ class SessionPanelHelperTests(unittest.TestCase):
             "feature/ver…",
         )
 
-    def test_ancestor_chain(self):
-        parent_map = {40: 30, 30: 20, 20: 0}
-        self.assertEqual(module._ancestor_pids(40, parent_map), [40, 30, 20])
-        self.assertEqual(module._ancestor_pids("bad", parent_map), [])
-        self.assertEqual(
-            module._ancestor_pids(40, {40: 30, 30: 40}),
-            [40, 30],
+    def test_pending_launch_matching_uses_cwd_and_nearest_creation_time(self):
+        pending = [
+            {"window_name": "agent-a", "cwd": r"D:\WorldQuant Brain", "launched_at": 100.0},
+            {"window_name": "agent-b", "cwd": r"D:\WorldQuant Brain", "launched_at": 120.0},
+            {"window_name": "agent-c", "cwd": r"D:\Other", "launched_at": 121.0},
+        ]
+        match = module._choose_pending_launch(
+            r"d:/worldquant brain", 123.0, pending
+        )
+        self.assertEqual(match["window_name"], "agent-b")
+
+    def test_pending_launch_matching_rejects_unrelated_or_stale_entries(self):
+        pending = [
+            {"window_name": "agent-a", "cwd": r"D:\WorldQuant Brain", "launched_at": 100.0},
+        ]
+        self.assertIsNone(
+            module._choose_pending_launch(r"D:\Other", 101.0, pending)
+        )
+        self.assertIsNone(
+            module._choose_pending_launch(r"D:\WorldQuant Brain", 500.0, pending)
         )
 
     def test_clamp_pct(self):
