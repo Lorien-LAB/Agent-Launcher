@@ -8,9 +8,10 @@ Desktop GUI for launching Claude Code or Hermes in working directories, with a r
 Agent-Launcher/
 ├── README.md
 ├── python/
-│   ├── terminal_manager.py          # Application entry point
+│   ├── terminal_manager.py          # Application entry point and terminal focus behavior
 │   ├── terminal_manager_core.py     # Launcher, tray, terminal focus, base panel
-│   ├── session_panel_ui.py          # Compact Session Monitor presentation
+│   ├── session_panel_ui.py          # Progress animation and session filtering
+│   ├── session_panel_layout.py      # Narrow card layout and hover details
 │   ├── session_monitor.py           # Session monitoring engine
 │   ├── tests/                       # Display-independent helper tests
 │   ├── run.bat                      # Double-click launcher
@@ -26,13 +27,14 @@ Agent-Launcher/
 | Agent Launch | Launch Claude Code or Hermes in a selected working directory |
 | Directory Tree | Collapsible directory groups |
 | Terminal Themes | Acrylic, opacity, or solid Windows Terminal backgrounds |
-| Session Monitor | Compact, borderless, always-on-top monitoring panel |
+| Session Monitor | 260px compact, borderless, always-on-top monitoring panel |
 | Reusable Session Cards | Session cards update in place by session ID |
-| Context Progress | Green-to-red animated context usage bar |
-| Hover Details | Token totals and estimated cost |
+| Compact Collapsed Cards | Collapsed cards show only session name, state, and context bar |
+| Hover Details | Branch, agents, context percentage, token totals, and estimated cost |
+| Context Progress | Green-to-red whole-fill animated context usage bar |
 | Live Session Filtering | Closed sessions and exited PIDs are removed |
+| Geometry-Preserving Focus | Clicking a card raises its terminal without moving or resizing it |
 | System Tray | Close minimizes to tray; tooltip shows live totals |
-| Terminal Focus | Click a card or complete a task to focus its terminal |
 | Edge Snapping | Panel snaps to screen edges while dragging |
 | Taskbar Awareness | Resizing respects the Windows work area |
 
@@ -47,7 +49,7 @@ run.bat
 
 ```bash
 python -m unittest discover -s python/tests -v
-python -m py_compile python/terminal_manager.py python/terminal_manager_core.py python/session_panel_ui.py python/session_monitor.py
+python -m py_compile python/terminal_manager.py python/terminal_manager_core.py python/session_panel_ui.py python/session_panel_layout.py python/session_monitor.py
 ```
 
 Final visual and Windows Terminal behavior should be validated on Windows.
