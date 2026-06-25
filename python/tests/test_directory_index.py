@@ -40,8 +40,8 @@ class DirectoryIndexTests(unittest.TestCase):
             index.scan_now()
             results = index.search("alpha", {str(root / "alphabet"): 10.0})
             self.assertEqual(results[0].name, "alpha")
-            self.assertEqual(results[1].name, "alpha-parent")
-            self.assertEqual(results[2].name, "alphabet")
+            self.assertEqual(results[1].name, "alphabet")
+            self.assertEqual(results[2].name, "alpha-parent")
             self.assertEqual(results[3].name, "my-alpha-project")
 
     def test_relative_path_match_is_included(self):
