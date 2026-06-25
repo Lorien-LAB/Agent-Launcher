@@ -1,11 +1,12 @@
-"""Python Agent Launcher entry point.
+"""Agent Launcher entry point.
 
-The stable launcher implementation lives in ``terminal_manager_core`` while
-small override modules contain the Session Monitor presentation and terminal
-focus behavior.
+``terminal_manager_core`` retains the tray and base Session Monitor while the
+modular adaptive Launcher runtime is installed after the ordered presentation
+and exact-Terminal-focus overrides below.
 """
 import time
 
+import launcher_runtime as _launcher_runtime
 import session_panel_chrome as _panel_chrome
 import session_panel_details as _panel_details
 import session_panel_layout as _panel_layout
@@ -19,6 +20,7 @@ _panel_layout.apply_compact_layout(_core)
 _terminal_focus.apply_terminal_focus(_core)
 _panel_chrome.apply_panel_chrome(_core)
 _panel_details.apply_dynamic_details(_core)
+_launcher_runtime.install_adaptive_launcher(_core)
 
 
 def _smooth_tick_height(self):
