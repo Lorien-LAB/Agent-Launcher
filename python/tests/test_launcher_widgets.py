@@ -6,6 +6,7 @@ import unittest
 
 import _bootstrap  # noqa: F401
 
+from launcher_background import blend_for_glow, glow_spec_for_mode
 from launcher_theme import COLORS
 from launcher_widgets import (
     SegmentedState,
@@ -59,6 +60,23 @@ class LauncherWidgetHelperTests(unittest.TestCase):
         self.assertFalse(scrollbar_should_show(0.0, 1.0))
         self.assertTrue(scrollbar_should_show(0.1, 0.6))
         self.assertTrue(scrollbar_should_show(0.0, 0.99))
+
+
+class LauncherBackgroundTests(unittest.TestCase):
+    def test_compact_mode_has_one_purple_glow(self):
+        glows = glow_spec_for_mode(False, 380, 420)
+        self.assertEqual(1, len(glows))
+        self.assertEqual("purple", glows[0].role)
+        self.assertLessEqual(glows[0].opacity, 0.14)
+
+    def test_expanded_mode_adds_blue_project_glow(self):
+        glows = glow_spec_for_mode(True, 820, 560)
+        self.assertEqual(["purple", "blue"], [glow.role for glow in glows])
+        self.assertLessEqual(glows[1].opacity, 0.10)
+
+    def test_glow_blending_is_clamped(self):
+        self.assertEqual("#090B12", blend_for_glow("#090B12", "#8B5CF6", -1))
+        self.assertEqual("#8B5CF6", blend_for_glow("#090B12", "#8B5CF6", 2))
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY") or sys.platform == "win32", "Tk display required")
