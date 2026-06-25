@@ -27,9 +27,17 @@ spec.loader.exec_module(module)
 
 class SessionPanelHelperTests(unittest.TestCase):
     def test_panel_and_card_dimensions_are_compact(self):
-        self.assertEqual(module.SESSION_PANEL_WIDTH, 380)
-        self.assertEqual(module.SessionCard.COLLAPSED_H, 56)
-        self.assertEqual(module.SessionCard.EXPANDED_H, 80)
+        self.assertEqual(module.SESSION_PANEL_WIDTH, 260)
+        self.assertEqual(module.SessionCard.COLLAPSED_H, 44)
+        self.assertEqual(module.SessionCard.EXPANDED_H, 82)
+
+    def test_compact_branch(self):
+        self.assertEqual(module._compact_branch("main"), "")
+        self.assertEqual(module._compact_branch("feature"), "feature")
+        self.assertEqual(
+            module._compact_branch("feature/very-long-branch"),
+            "feature/very-…",
+        )
 
     def test_clamp_pct(self):
         self.assertEqual(module._clamp_pct(-1), 0.0)
@@ -45,7 +53,10 @@ class SessionPanelHelperTests(unittest.TestCase):
     def test_running_progress_animates_whole_fill(self):
         self.assertEqual(module._animated_progress_width(100, 0.0, False), 100)
         self.assertEqual(module._animated_progress_width(100, 0.0, True), 1)
-        self.assertEqual(module._animated_progress_width(100, 3.1415926535, True), 49)
+        self.assertEqual(
+            module._animated_progress_width(100, 3.1415926535, True),
+            49,
+        )
 
     def test_status_style(self):
         self.assertEqual(module._status_style("running")[0], "RUNNING")
