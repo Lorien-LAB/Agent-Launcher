@@ -27,16 +27,25 @@ spec.loader.exec_module(module)
 
 class SessionPanelHelperTests(unittest.TestCase):
     def test_panel_and_card_dimensions_are_compact(self):
-        self.assertEqual(module.SESSION_PANEL_WIDTH, 260)
-        self.assertEqual(module.SessionCard.COLLAPSED_H, 44)
-        self.assertEqual(module.SessionCard.EXPANDED_H, 82)
+        self.assertEqual(module.SESSION_PANEL_WIDTH, 195)
+        self.assertEqual(module.SessionCard.COLLAPSED_H, 36)
+        self.assertEqual(module.SessionCard.EXPANDED_H, 78)
 
     def test_compact_branch(self):
         self.assertEqual(module._compact_branch("main"), "")
         self.assertEqual(module._compact_branch("feature"), "feature")
         self.assertEqual(
             module._compact_branch("feature/very-long-branch"),
-            "feature/very-…",
+            "feature/ver…",
+        )
+
+    def test_ancestor_chain(self):
+        parent_map = {40: 30, 30: 20, 20: 0}
+        self.assertEqual(module._ancestor_pids(40, parent_map), [40, 30, 20])
+        self.assertEqual(module._ancestor_pids("bad", parent_map), [])
+        self.assertEqual(
+            module._ancestor_pids(40, {40: 30, 30: 40}),
+            [40, 30],
         )
 
     def test_clamp_pct(self):
