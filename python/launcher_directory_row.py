@@ -169,13 +169,13 @@ class DirectoryRowWidget(tk.Canvas):
             outline="",
             state="hidden",
         )
-        self._folder = self.create_text(
+        self._folder = self.create_polygon(
             0,
             0,
-            text="▰",
+            0,
+            0,
             fill=self.theme["blue_light"],
-            font=self._symbol_font,
-            anchor="w",
+            outline="",
         )
         self._name = self.create_text(
             0,
@@ -238,8 +238,27 @@ class DirectoryRowWidget(tk.Canvas):
             self.s(METRICS.selected_bar_width) + 1,
             height - self.s(6),
         )
-        icon_x = self.s(14)
-        text_x = self.s(36)
+        icon_x = self.s(13)
+        icon_y = height // 2 - self.s(6)
+        icon_w = self.s(16)
+        icon_h = self.s(12)
+        self.coords(
+            self._folder,
+            icon_x,
+            icon_y + self.s(3),
+            icon_x + self.s(5),
+            icon_y + self.s(3),
+            icon_x + self.s(7),
+            icon_y,
+            icon_x + icon_w,
+            icon_y,
+            icon_x + icon_w,
+            icon_y + icon_h,
+            icon_x,
+            icon_y + icon_h,
+        )
+
+        text_x = self.s(38)
         star_x = width - self.s(20)
         favorite_radius = self.s(14)
         text_width = max(
@@ -258,7 +277,6 @@ class DirectoryRowWidget(tk.Canvas):
         )
         self.itemconfigure(self._name, text=display_name)
         self.itemconfigure(self._path, text=display_path)
-        self.coords(self._folder, icon_x, height // 2)
         self.coords(self._name, text_x, self.s(14))
         self.coords(self._path, text_x, self.s(30))
         self.coords(
