@@ -50,12 +50,9 @@ class LauncherWindowMixin:
             self._chrome_reapply_pending = False
 
     def _minimize_launcher(self):
-        core = self._runtime_core
-        try:
-            self.root.overrideredirect(False)
-            self.root.iconify()
-        except core.tk.TclError:
-            self._hide_to_tray()
+        if self.chrome_controller.minimize_native():
+            return
+        self._hide_to_tray()
 
     def _toggle_launcher_maximize(self):
         state = self.chrome_controller.state
