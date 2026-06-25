@@ -17,6 +17,15 @@ class DirectoryRowPresentation:
     unavailable: bool
 
 
+@dataclass(frozen=True)
+class DirectoryRowGeometry:
+    text_x: int
+    star_x: int
+    text_width: int
+    favorite_font_size: int
+    favorite_hit_radius: int
+
+
 def build_row_presentation(
     path: str,
     available: bool,
@@ -27,6 +36,24 @@ def build_row_presentation(
     if not available:
         path_text = f"{path_text} · Unavailable"
     return DirectoryRowPresentation(name, path_text, not available)
+
+
+def directory_row_geometry(width: int, scale: float = 1.0) -> DirectoryRowGeometry:
+    factor = max(0.01, float(scale))
+    text_x = round(14 * factor)
+    star_x = max(text_x + 48, int(width) - round(22 * factor))
+    favorite_hit_radius = round(16 * factor)
+    text_width = max(
+        round(24 * factor),
+        star_x - text_x - round(26 * factor),
+    )
+    return DirectoryRowGeometry(
+        text_x=text_x,
+        star_x=star_x,
+        text_width=text_width,
+        favorite_font_size=14,
+        favorite_hit_radius=favorite_hit_radius,
+    )
 
 
 def _middle_elide(value: str, limit: int) -> str:
@@ -115,17 +142,21 @@ class DirectoryRowWidget(tk.Canvas):
             self.available,
             path_limit=72,
         )
+        self._scale_factor = max(0.01, float(self.s(100)) / 100.0)
         self._name_font = tkfont.Font(
+            master=master,
             family="Segoe UI Semibold",
             size=9,
         )
         self._path_font = tkfont.Font(
+            master=master,
             family="Cascadia Code",
             size=8,
         )
-        self._symbol_font = tkfont.Font(
+        self._favorite_font = tkfont.Font(
+            master=master,
             family="Segoe UI Symbol",
-            size=10,
+            size=directory_row_geometry(320).favorite_font_size,
         )
         super().__init__(
             master,
@@ -169,14 +200,6 @@ class DirectoryRowWidget(tk.Canvas):
             outline="",
             state="hidden",
         )
-        self._folder = self.create_polygon(
-            0,
-            0,
-            0,
-            0,
-            fill=self.theme["blue_light"],
-            outline="",
-        )
         self._name = self.create_text(
             0,
             0,
@@ -211,7 +234,7 @@ class DirectoryRowWidget(tk.Canvas):
                 if self.favorite
                 else self.theme["text_muted"]
             ),
-            font=self._symbol_font,
+            font=self._favorite_font,
             tags=("favorite",),
         )
 
@@ -221,6 +244,7 @@ class DirectoryRowWidget(tk.Canvas):
             self.s(METRICS.directory_row_height),
             int(self.winfo_height()),
         )
+        geometry = directory_row_geometry(width, self._scale_factor)
         self.coords(
             self._background,
             *rounded_rectangle_points(
@@ -238,55 +262,29 @@ class DirectoryRowWidget(tk.Canvas):
             self.s(METRICS.selected_bar_width) + 1,
             height - self.s(6),
         )
-        icon_x = self.s(13)
-        icon_y = height // 2 - self.s(6)
-        icon_w = self.s(16)
-        icon_h = self.s(12)
-        self.coords(
-            self._folder,
-            icon_x,
-            icon_y + self.s(3),
-            icon_x + self.s(5),
-            icon_y + self.s(3),
-            icon_x + self.s(7),
-            icon_y,
-            icon_x + icon_w,
-            icon_y,
-            icon_x + icon_w,
-            icon_y + icon_h,
-            icon_x,
-            icon_y + icon_h,
-        )
-
-        text_x = self.s(38)
-        star_x = width - self.s(20)
-        favorite_radius = self.s(14)
-        text_width = max(
-            self.s(24),
-            star_x - text_x - self.s(22),
-        )
         display_name = fit_text_to_width(
             self.presentation.name,
-            text_width,
+            geometry.text_width,
             self._name_font.measure,
         )
         display_path = fit_text_to_width(
             self.presentation.path_text,
-            text_width,
+            geometry.text_width,
             self._path_font.measure,
         )
         self.itemconfigure(self._name, text=display_name)
         self.itemconfigure(self._path, text=display_path)
-        self.coords(self._name, text_x, self.s(14))
-        self.coords(self._path, text_x, self.s(30))
+        self.coords(self._name, geometry.text_x, self.s(14))
+        self.coords(self._path, geometry.text_x, self.s(30))
+        radius = geometry.favorite_hit_radius
         self.coords(
             self._star_hit,
-            star_x - favorite_radius,
-            height // 2 - favorite_radius,
-            star_x + favorite_radius,
-            height // 2 + favorite_radius,
+            geometry.star_x - radius,
+            height // 2 - radius,
+            geometry.star_x + radius,
+            height // 2 + radius,
         )
-        self.coords(self._star, star_x, height // 2)
+        self.coords(self._star, geometry.star_x, height // 2)
         self._render_state()
 
     def _render_state(self):
