@@ -9,7 +9,6 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 os.environ.setdefault("LOCALAPPDATA", str(ROOT / ".localappdata"))
 
-# Keep helper tests independent of optional desktop-only dependencies.
 sys.modules.setdefault("pystray", types.SimpleNamespace())
 if "PIL" not in sys.modules:
     pil = types.ModuleType("PIL")
