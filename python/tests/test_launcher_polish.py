@@ -47,13 +47,14 @@ class LauncherPolishTests(unittest.TestCase):
             self.assertTrue(first.is_dir())
             self.assertFalse(store.remove_recent(str(first)))
 
-    def test_dynamic_glow_moves_with_bounded_opacity(self):
+    def test_dynamic_glow_moves_and_strengthens_background(self):
         base = GlowSpec("purple", 80, 60, 220, 0.32)
         start = animate_glow(base, 0.0)
         moved = animate_glow(base, 1.2)
         self.assertNotEqual((start.center_x, start.center_y), (moved.center_x, moved.center_y))
-        self.assertGreaterEqual(moved.opacity, base.opacity * 0.88)
-        self.assertLessEqual(moved.opacity, base.opacity * 1.08)
+        self.assertGreater(moved.radius, base.radius)
+        self.assertGreaterEqual(moved.opacity, base.opacity * 1.08)
+        self.assertLessEqual(moved.opacity, base.opacity * 1.24)
 
     def test_scrollbar_thumb_is_inset_and_has_minimum_height(self):
         top, bottom = thumb_geometry(0.2, 0.3, height=300, min_height=34, inset=3)
