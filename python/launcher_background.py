@@ -16,26 +16,26 @@ class GlowSpec:
 
 
 def glow_spec_for_mode(expanded: bool, width: int, height: int) -> list[GlowSpec]:
-    """Return glow geometry in logical pixels."""
+    """Return stronger ambient glow geometry in logical pixels."""
     width = max(1, int(width))
     height = max(1, int(height))
     glows = [
         GlowSpec(
             "purple",
-            center_x=min(width, 72),
-            center_y=min(height, 52),
-            radius=min(180, max(140, width // 3)),
-            opacity=0.14,
+            center_x=min(width, 92),
+            center_y=min(height, 76),
+            radius=min(250, max(180, width // 2)),
+            opacity=0.24,
         )
     ]
     if expanded:
         glows.append(
             GlowSpec(
                 "blue",
-                center_x=round(width * 0.72),
-                center_y=round(height * 0.28),
-                radius=min(160, max(120, width // 5)),
-                opacity=0.10,
+                center_x=round(width * 0.78),
+                center_y=round(height * 0.34),
+                radius=min(230, max(180, width // 4)),
+                opacity=0.18,
             )
         )
     return glows
@@ -50,7 +50,7 @@ def blend_for_glow(background: str, glow: str, opacity: float) -> str:
 
 
 class LauncherBackground(tk.Canvas):
-    """Low-cost cached ambient glow layer for compact and expanded layouts."""
+    """Cached ambient gradient layer for compact and expanded layouts."""
 
     def __init__(self, master, *, theme, scale):
         self.theme = theme
@@ -104,14 +104,14 @@ class LauncherBackground(tk.Canvas):
     def _draw_glow(self, spec: GlowSpec) -> None:
         background = self.theme["window_bg"]
         accent = self.theme[spec.role]
-        rings = 18
+        rings = 26
         center_x = self.s(spec.center_x)
         center_y = self.s(spec.center_y)
         # Draw widest/faintest rings first, strongest center last.
         for index in range(rings, 0, -1):
             fraction = index / rings
             radius = max(1, round(self.s(spec.radius) * fraction))
-            strength = spec.opacity * (1.0 - 0.84 * fraction)
+            strength = spec.opacity * (1.0 - 0.76 * fraction)
             color = blend_for_glow(background, accent, strength)
             self.create_oval(
                 center_x - radius,
