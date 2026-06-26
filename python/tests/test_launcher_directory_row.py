@@ -33,7 +33,7 @@ class LauncherDirectoryRowTests(unittest.TestCase):
         presentation = build_row_presentation("C:\\", available=True, path_limit=12)
         self.assertEqual("C:\\", presentation.name)
 
-    def test_width_aware_truncation_reserves_space_for_favorite_control(self):
+    def test_width_aware_truncation_reserves_space_for_row_action(self):
         value = "AFAC2026挑战组-赛题一：市场参与者交易行为识别与资金流向分析"
 
         def measure(text):
@@ -51,12 +51,12 @@ class LauncherDirectoryRowTests(unittest.TestCase):
             fit_text_to_width("futures_analysis", 200, lambda text: len(text) * 7),
         )
 
-    def test_geometry_removes_folder_icon_and_enlarges_favorite(self):
+    def test_geometry_reserves_space_for_large_row_action(self):
         geometry = directory_row_geometry(320, scale=1.0)
         self.assertLessEqual(geometry.text_x, 16)
         self.assertGreaterEqual(geometry.name_font_size, 11)
         self.assertGreaterEqual(geometry.favorite_font_size, 14)
-        self.assertGreaterEqual(geometry.favorite_hit_radius, 16)
+        self.assertGreaterEqual(geometry.action_hit_radius, 16)
         self.assertGreater(geometry.text_width, 240)
 
 
