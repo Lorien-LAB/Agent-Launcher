@@ -38,14 +38,14 @@ class ThemeMetrics:
     card_gap: int = 10
     card_padding: int = 12
     titlebar_height: int = 38
-    search_height: int = 40
-    directory_row_height: int = 44
-    primary_button_height: int = 40
-    secondary_button_height: int = 32
-    card_radius: int = 12
-    button_radius: int = 8
-    input_radius: int = 10
-    row_radius: int = 8
+    search_height: int = 42
+    directory_row_height: int = 50
+    primary_button_height: int = 42
+    secondary_button_height: int = 34
+    card_radius: int = 18
+    button_radius: int = 14
+    input_radius: int = 16
+    row_radius: int = 14
     border_width: int = 1
     selected_bar_width: int = 2
 
