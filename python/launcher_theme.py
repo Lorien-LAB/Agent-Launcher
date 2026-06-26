@@ -6,13 +6,20 @@ from dataclasses import dataclass
 COLORS = {
     "window_bg": "#090B12",
     "surface_0": "#0B0E17",
-    "surface_1": "#111522",
-    "surface_2": "#161B2A",
-    "surface_hover": "#1B2233",
-    "surface_selected": "#202844",
-    "border": "#202638",
-    "border_hover": "#323B56",
-    "border_focus": "#7567F8",
+    "surface_1": "#11182A",
+    "surface_2": "#172139",
+    "surface_hover": "#1A2743",
+    "surface_selected": "#223154",
+    "border": "#263553",
+    "border_hover": "#3B4F78",
+    "border_focus": "#7B6CFF",
+    "glass_fill": "#121D35",
+    "glass_fill_hover": "#182846",
+    "glass_content": "#10182B",
+    "glass_border": "#35496F",
+    "glass_border_bright": "#8377FF",
+    "glass_highlight": "#7F98D8",
+    "glass_shadow": "#050711",
     "text_primary": "#F5F7FB",
     "text_secondary": "#B4BAC9",
     "text_muted": "#7E879D",
@@ -42,9 +49,9 @@ class ThemeMetrics:
     directory_row_height: int = 50
     primary_button_height: int = 42
     secondary_button_height: int = 34
-    card_radius: int = 18
+    card_radius: int = 22
     button_radius: int = 14
-    input_radius: int = 16
+    input_radius: int = 18
     row_radius: int = 14
     border_width: int = 1
     selected_bar_width: int = 2
