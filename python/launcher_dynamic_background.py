@@ -11,8 +11,8 @@ def animate_glow(spec: GlowSpec, phase: float) -> GlowSpec:
         spec.role,
         spec.center_x + round(math.sin(phase + offset) * 24),
         spec.center_y + round(math.cos(phase * 0.78 + offset) * 17),
-        spec.radius,
-        spec.opacity * (0.98 + 0.08 * math.sin(phase * 0.62 + offset)),
+        spec.radius + 18,
+        spec.opacity * (1.16 + 0.08 * math.sin(phase * 0.62 + offset)),
     )
 
 
@@ -21,6 +21,8 @@ class DynamicLauncherBackground(LauncherBackground):
         self._phase = 0.0
         self._motion_after = None
         super().__init__(master, theme=theme, scale=scale)
+        self.bind("<Map>", lambda _event: self._schedule_motion(), add="+")
+        self.bind("<Unmap>", lambda _event: self._cancel_motion(), add="+")
         self._schedule_motion()
 
     def _reduced_motion(self):
@@ -32,6 +34,14 @@ class DynamicLauncherBackground(LauncherBackground):
     def _schedule_motion(self):
         if self._motion_after is None and not self._reduced_motion():
             self._motion_after = self.after(140, self._motion_step)
+
+    def _cancel_motion(self):
+        if self._motion_after is not None:
+            try:
+                self.after_cancel(self._motion_after)
+            except Exception:
+                pass
+            self._motion_after = None
 
     def _motion_step(self):
         self._motion_after = None
@@ -64,10 +74,5 @@ class DynamicLauncherBackground(LauncherBackground):
             )
 
     def destroy(self):
-        if self._motion_after is not None:
-            try:
-                self.after_cancel(self._motion_after)
-            except Exception:
-                pass
-            self._motion_after = None
+        self._cancel_motion()
         super().destroy()
