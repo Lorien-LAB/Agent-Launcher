@@ -61,6 +61,18 @@ class BackdropFrame(tk.Frame):
         if self._backdrop_host is not None:
             self._backdrop_host.register_surface(self)
 
+    def set_backdrop_color(self, color):
+        color = str(color)
+        self.configure(bg=color)
+        for child in self.winfo_children():
+            try:
+                if hasattr(child, "set_backdrop_color"):
+                    child.set_backdrop_color(color)
+                else:
+                    child.configure(bg=color)
+            except (AttributeError, tk.TclError):
+                pass
+
     def destroy(self):
         if self._backdrop_host is not None:
             try:
