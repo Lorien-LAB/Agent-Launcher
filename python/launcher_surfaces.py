@@ -1,8 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import tkinter as tk
 
 from launcher_geometry import stable_rounded_rectangle_points
+
+
+@dataclass(frozen=True)
+class GlassLayerSpec:
+    shadow_bounds: tuple[int, int, int, int]
+    panel_bounds: tuple[int, int, int, int]
+    inner_bounds: tuple[int, int, int, int]
+    outer_radius: int
+    inner_radius: int
+    sheen_start_x: int
+    sheen_end_x: int
+    sheen_y: int
 
 
 def _master_bg(master, fallback):
@@ -12,12 +25,37 @@ def _master_bg(master, fallback):
         return fallback
 
 
+def glass_content_inset(radius: int, padding: int) -> int:
+    """Keep rectangular Tk child windows clear of the visible rounded corners."""
+    return max(int(padding), int(round(float(radius) * 0.58)))
+
+
+def glass_layer_spec(width: int, height: int, radius: int) -> GlassLayerSpec:
+    width = max(4, int(width))
+    height = max(6, int(height))
+    outer_radius = max(1, min(int(radius), width // 2 - 1, height // 2 - 1))
+    inner_radius = max(1, outer_radius - 4)
+    return GlassLayerSpec(
+        shadow_bounds=(2, 4, width - 2, height - 1),
+        panel_bounds=(2, 2, width - 2, height - 3),
+        inner_bounds=(5, 5, width - 5, height - 6),
+        outer_radius=outer_radius,
+        inner_radius=inner_radius,
+        sheen_start_x=min(width - 2, max(12, outer_radius)),
+        sheen_end_x=max(12, width - max(24, outer_radius + 8)),
+        sheen_y=5,
+    )
+
+
 class CleanRoundedCard(tk.Canvas):
-    def __init__(self, master, *, theme, scale, radius=18, padding=12, **kwargs):
+    """Layered pseudo-transparent panel that keeps child widgets inside its corners."""
+
+    def __init__(self, master, *, theme, scale, radius=22, padding=12, **kwargs):
         self.theme = theme
         self.s = scale
-        self.radius = radius
-        self.padding = padding
+        self.radius = max(1, int(radius))
+        self.padding = max(0, int(padding))
+        self.content_inset = glass_content_inset(self.radius, self.padding)
         self._hovered = False
         self._focused = False
         super().__init__(
@@ -27,51 +65,101 @@ class CleanRoundedCard(tk.Canvas):
             bd=0,
             **kwargs,
         )
-        self._shape = self.create_polygon(
-            *stable_rounded_rectangle_points(1, 1, 3, 3, 1),
+        self._shadow = self.create_polygon(
+            *stable_rounded_rectangle_points(2, 4, 4, 6, 1),
             smooth=True,
             splinesteps=24,
-            fill=theme["surface_1"],
-            outline=theme["border"],
+            fill=theme["glass_shadow"],
+            outline="",
+        )
+        self._shape = self.create_polygon(
+            *stable_rounded_rectangle_points(2, 2, 4, 4, 1),
+            smooth=True,
+            splinesteps=24,
+            fill=theme["glass_fill"],
+            outline=theme["glass_border"],
             width=self.s(1),
         )
-        self.content = tk.Frame(self, bg=theme["surface_1"])
+        self._inner_rim = self.create_polygon(
+            *stable_rounded_rectangle_points(5, 5, 7, 7, 1),
+            smooth=True,
+            splinesteps=24,
+            fill="",
+            outline=theme["glass_highlight"],
+            width=self.s(1),
+        )
+        self._top_sheen = self.create_line(
+            0,
+            0,
+            0,
+            0,
+            fill=theme["glass_highlight"],
+            width=self.s(1),
+            capstyle=tk.ROUND,
+        )
+        self.content = tk.Frame(self, bg=theme["glass_content"])
+        inset = self.s(self.content_inset)
         self._content_window = self.create_window(
-            self.s(padding),
-            self.s(padding),
+            inset,
+            inset,
             anchor="nw",
             window=self.content,
         )
         self.bind("<Configure>", self._on_configure)
 
     def _on_configure(self, event):
-        width = max(2, int(event.width))
-        height = max(2, int(event.height))
-        inset = self.s(1)
+        width = max(4, int(event.width))
+        height = max(6, int(event.height))
+        spec = glass_layer_spec(width, height, self.s(self.radius))
+        self.coords(
+            self._shadow,
+            *stable_rounded_rectangle_points(
+                *spec.shadow_bounds,
+                spec.outer_radius,
+            ),
+        )
         self.coords(
             self._shape,
             *stable_rounded_rectangle_points(
-                inset,
-                inset,
-                width - inset,
-                height - inset,
-                self.s(self.radius),
+                *spec.panel_bounds,
+                spec.outer_radius,
             ),
         )
+        self.coords(
+            self._inner_rim,
+            *stable_rounded_rectangle_points(
+                *spec.inner_bounds,
+                spec.inner_radius,
+            ),
+        )
+        self.coords(
+            self._top_sheen,
+            spec.sheen_start_x,
+            spec.sheen_y,
+            spec.sheen_end_x,
+            spec.sheen_y,
+        )
+        inset = self.s(self.content_inset)
+        self.coords(self._content_window, inset, inset)
         self.itemconfigure(
             self._content_window,
-            width=max(1, width - self.s(self.padding * 2)),
-            height=max(1, height - self.s(self.padding * 2)),
+            width=max(1, width - inset * 2),
+            height=max(1, height - inset * 2),
         )
 
     def set_interactive_state(self, *, hovered=False, focused=False):
         self._hovered = bool(hovered)
         self._focused = bool(focused)
-        background = self.theme["surface_hover"] if self._hovered else self.theme["surface_1"]
+        background = (
+            self.theme["glass_fill_hover"]
+            if self._hovered
+            else self.theme["glass_fill"]
+        )
         border = (
-            self.theme["border_focus"]
+            self.theme["glass_border_bright"]
             if self._focused
-            else self.theme["border_hover"] if self._hovered else self.theme["border"]
+            else self.theme["border_hover"]
+            if self._hovered
+            else self.theme["glass_border"]
         )
         self.itemconfigure(self._shape, fill=background, outline=border)
-        self.content.configure(bg=background)
