@@ -3,35 +3,20 @@ from __future__ import annotations
 import tkinter as tk
 
 from launcher_directory_row import DirectoryRowWidget
+from launcher_scrollbar import PillScrollbar
 from launcher_state import normalize_path
+from launcher_surfaces import CleanRoundedCard
 from launcher_theme import COLORS, METRICS
-from launcher_widgets import OverlayScrollbar, RoundedCard
 
 
 def section_title(section: str) -> str:
-    return {
-        "favorite": "FAVORITES",
-        "recent": "RECENT",
-        "search": "SEARCH RESULTS",
-    }.get(section, str(section).upper())
+    return {"favorite": "FAVORITES", "recent": "RECENT", "search": "SEARCH RESULTS"}.get(section, str(section).upper())
 
 
 def _resolved_theme(theme=None, colors=None):
     provided = theme if theme is not None else colors or {}
     resolved = dict(COLORS)
-    legacy = {
-        "base": "window_bg",
-        "card": "surface_1",
-        "list": "surface_1",
-        "selected": "surface_selected",
-        "text": "text_primary",
-        "sub": "text_secondary",
-        "muted": "text_muted",
-        "accent": "purple",
-        "green": "claude",
-        "orange": "hermes",
-        "error": "danger",
-    }
+    legacy = {"base": "window_bg", "card": "surface_1", "list": "surface_1", "selected": "surface_selected", "text": "text_primary", "sub": "text_secondary", "muted": "text_muted", "accent": "purple", "green": "claude", "orange": "hermes", "error": "danger"}
     for key, value in provided.items():
         if key in resolved:
             resolved[key] = value
@@ -41,71 +26,35 @@ def _resolved_theme(theme=None, colors=None):
     return resolved
 
 
-class DirectoryList(RoundedCard):
-    def __init__(
-        self,
-        master,
-        colors=None,
-        scale=lambda value: value,
-        on_select=None,
-        on_launch=None,
-        on_favorite=None,
-        *,
-        theme=None,
-    ):
+class DirectoryList(CleanRoundedCard):
+    def __init__(self, master, colors=None, scale=lambda value: value, on_select=None, on_launch=None, on_favorite=None, on_remove_recent=None, *, theme=None):
         self.theme = _resolved_theme(theme, colors)
         self.s = scale
         self.on_select = on_select or (lambda _path: None)
         self.on_launch = on_launch or (lambda _agent: None)
         self.on_favorite = on_favorite or (lambda _path: None)
+        self.on_remove_recent = on_remove_recent or (lambda _path: None)
         self.rows = []
         self.selected_path = None
         self.row_widgets = {}
-        super().__init__(
-            master,
-            theme=self.theme,
-            scale=self.s,
-            radius=METRICS.card_radius,
-            padding=6,
-        )
-
+        super().__init__(master, theme=self.theme, scale=self.s, radius=METRICS.card_radius, padding=7)
         self.content.grid_rowconfigure(0, weight=1)
         self.content.grid_columnconfigure(0, weight=1)
-        self.canvas = tk.Canvas(
-            self.content,
-            bg=self.theme["surface_1"],
-            highlightthickness=0,
-            bd=0,
-            yscrollincrement=self.s(METRICS.directory_row_height),
-        )
+        self.canvas = tk.Canvas(self.content, bg=self.theme["surface_1"], highlightthickness=0, bd=0, yscrollincrement=self.s(METRICS.directory_row_height))
         self.canvas.grid(row=0, column=0, sticky="nsew")
-        self.scrollbar = OverlayScrollbar(
-            self.content,
-            command=self.canvas.yview,
-            theme=self.theme,
-            scale=self.s,
-            on_visibility_change=self._set_scrollbar_visible,
-        )
-        self.scrollbar.grid(row=0, column=1, sticky="ns")
+        self.scrollbar = PillScrollbar(self.content, command=self.canvas.yview, theme=self.theme, scale=self.s, on_visibility_change=self._set_scrollbar_visible)
+        self.scrollbar.grid(row=0, column=1, sticky="ns", padx=(self.s(3), 0))
         self.scrollbar.grid_remove()
         self.canvas.configure(yscrollcommand=self._on_yview)
-
         self.body = tk.Frame(self.canvas, bg=self.theme["surface_1"])
-        self.body_window = self.canvas.create_window(
-            (0, 0),
-            window=self.body,
-            anchor="nw",
-        )
+        self.body_window = self.canvas.create_window((0, 0), window=self.body, anchor="nw")
         self.body.bind("<Configure>", self._body_configured)
         self.canvas.bind("<Configure>", self._canvas_configured)
         self._bind_wheel(self.canvas)
         self._bind_wheel(self.body)
 
     def _set_scrollbar_visible(self, visible):
-        if visible:
-            self.scrollbar.grid()
-        else:
-            self.scrollbar.grid_remove()
+        self.scrollbar.grid() if visible else self.scrollbar.grid_remove()
 
     def _on_yview(self, first, last):
         self.scrollbar.set(first, last)
@@ -122,8 +71,7 @@ class DirectoryList(RoundedCard):
         widget.bind("<MouseWheel>", self._mousewheel, add="+")
 
     def _mousewheel(self, event):
-        delta = -1 if int(event.delta) > 0 else 1
-        self.canvas.yview_scroll(delta, "units")
+        self.canvas.yview_scroll(-1 if int(event.delta) > 0 else 1, "units")
         return "break"
 
     def render(self, rows):
@@ -134,56 +82,22 @@ class DirectoryList(RoundedCard):
         self.row_widgets = {}
         current_section = None
         selected_key = normalize_path(self.selected_path or "")
-
         for row in self.rows:
             if row.section != current_section:
                 current_section = row.section
-                heading = tk.Label(
-                    self.body,
-                    text=section_title(current_section),
-                    bg=self.theme["surface_1"],
-                    fg=self.theme["text_muted"],
-                    anchor="w",
-                    font=("Segoe UI Semibold", 8),
-                )
-                heading.pack(
-                    fill="x",
-                    padx=self.s(8),
-                    pady=(self.s(8), self.s(3)),
-                )
+                heading = tk.Label(self.body, text=section_title(current_section), bg=self.theme["surface_1"], fg=self.theme["text_muted"], anchor="w", font=("Segoe UI Semibold", 8))
+                heading.pack(fill="x", padx=self.s(10), pady=(self.s(9), self.s(4)))
                 self._bind_wheel(heading)
-
-            widget = DirectoryRowWidget(
-                self.body,
-                row,
-                theme=self.theme,
-                scale=self.s,
-                on_select=self.on_select,
-                on_launch=self.on_launch,
-                on_favorite=self.on_favorite,
-            )
-            widget.pack(
-                fill="x",
-                padx=self.s(3),
-                pady=self.s(1),
-            )
+            widget = DirectoryRowWidget(self.body, row, theme=self.theme, scale=self.s, on_select=self.on_select, on_launch=self.on_launch, on_favorite=self.on_favorite, on_remove_recent=self.on_remove_recent)
+            widget.pack(fill="x", padx=self.s(3), pady=self.s(2))
             self._bind_wheel(widget)
             key = normalize_path(row.path)
             widget.set_selected(key == selected_key)
             self.row_widgets[key] = widget
-
         if not self.rows:
-            empty = tk.Label(
-                self.body,
-                text="No matching directories",
-                bg=self.theme["surface_1"],
-                fg=self.theme["text_muted"],
-                pady=self.s(24),
-                font=("Segoe UI", 9),
-            )
+            empty = tk.Label(self.body, text="No matching directories", bg=self.theme["surface_1"], fg=self.theme["text_muted"], pady=self.s(24), font=("Segoe UI", 9))
             empty.pack(fill="x")
             self._bind_wheel(empty)
-
         self.body.update_idletasks()
         self._body_configured()
         self.restore_scroll(fraction)
