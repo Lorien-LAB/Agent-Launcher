@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from launcher_branding import GlassBrandButton
-from launcher_widgets import RoundedCard
+from launcher_surfaces import CleanRoundedCard
 
 
 def compact_footer_sections() -> tuple[str, ...]:
@@ -10,11 +10,12 @@ def compact_footer_sections() -> tuple[str, ...]:
 
 def build_footer(view) -> None:
     theme = view.theme
-    view.compact_footer = RoundedCard(
+    view.compact_footer = CleanRoundedCard(
         view.background,
         theme=theme,
         scale=view.s,
         height=view.s(58),
+        radius=18,
         padding=10,
     )
     view.compact_footer.grid(
@@ -40,12 +41,7 @@ def build_footer(view) -> None:
         width=145,
         height=38,
     )
-    view.compact_claude_button.grid(
-        row=0,
-        column=0,
-        sticky="ew",
-        padx=(0, view.s(4)),
-    )
+    view.compact_claude_button.grid(row=0, column=0, sticky="ew", padx=(0, view.s(4)))
 
     view.compact_hermes_button = GlassBrandButton(
         footer,
@@ -57,9 +53,4 @@ def build_footer(view) -> None:
         width=120,
         height=38,
     )
-    view.compact_hermes_button.grid(
-        row=0,
-        column=1,
-        sticky="ew",
-        padx=(view.s(4), 0),
-    )
+    view.compact_hermes_button.grid(row=0, column=1, sticky="ew", padx=(view.s(4), 0))
