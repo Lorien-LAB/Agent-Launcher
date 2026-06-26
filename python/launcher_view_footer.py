@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from launcher_branding import GlassBrandButton
+from launcher_quiet_branding import QuietGlassBrandButton
 from launcher_surfaces import BackdropFrame
 
 
@@ -24,7 +24,7 @@ def build_footer(view) -> None:
     view.compact_footer.grid_columnconfigure(0, weight=1, uniform="compact_launch")
     view.compact_footer.grid_columnconfigure(1, weight=1, uniform="compact_launch")
 
-    view.compact_claude_button = GlassBrandButton(
+    view.compact_claude_button = QuietGlassBrandButton(
         view.compact_footer,
         role="claude",
         text="Claude Code",
@@ -41,7 +41,7 @@ def build_footer(view) -> None:
         padx=(0, view.s(5)),
     )
 
-    view.compact_hermes_button = GlassBrandButton(
+    view.compact_hermes_button = QuietGlassBrandButton(
         view.compact_footer,
         role="hermes",
         text="Hermes",
