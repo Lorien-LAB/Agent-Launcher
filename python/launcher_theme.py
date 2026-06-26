@@ -12,13 +12,13 @@ COLORS = {
     "surface_selected": "#202D4C",
     "border": "#202C45",
     "border_hover": "#30415F",
-    "border_focus": "#7567F8",
+    "border_focus": "#675BCE",
     "glass_fill": "#10192B",
     "glass_fill_hover": "#152139",
     "glass_content": "#0F1728",
-    "glass_border": "#293A5A",
-    "glass_border_bright": "#7567F8",
-    "glass_highlight": "#536C9F",
+    "glass_border": "#263650",
+    "glass_border_bright": "#675BCE",
+    "glass_highlight": "#465D8C",
     "glass_shadow": "#060810",
     "text_primary": "#F5F7FB",
     "text_secondary": "#B4BAC9",
@@ -63,7 +63,6 @@ EXPANDED_LOGICAL_SIZE = (820, 560)
 
 
 def scaled(value: int | float, dpi_scale: float) -> int:
-    """Scale a logical pixel value while keeping visible dimensions non-zero."""
     return max(1, int(round(float(value) * float(dpi_scale))))
 
 
@@ -86,7 +85,6 @@ def _hex_to_rgb(value: str) -> tuple[int, int, int]:
 
 
 def interpolate_hex(start: str, end: str, progress: float) -> str:
-    """Linearly blend two RGB colors, clamping progress to the 0..1 range."""
     t = max(0.0, min(1.0, float(progress)))
     start_rgb = _hex_to_rgb(start)
     end_rgb = _hex_to_rgb(end)
@@ -95,7 +93,6 @@ def interpolate_hex(start: str, end: str, progress: float) -> str:
 
 
 def preferred_font_family(available_families: set[str], *candidates: str) -> str:
-    """Choose the first installed font and provide a deterministic fallback."""
     normalized = {family.casefold(): family for family in available_families}
     for candidate in candidates:
         installed = normalized.get(candidate.casefold())
