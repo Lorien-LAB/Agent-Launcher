@@ -32,9 +32,9 @@ class GlassPalette:
 
 def brand_visual_spec(role: str) -> BrandVisualSpec:
     if role == "claude":
-        return BrandVisualSpec("claude", "claude_burst", 15, 24)
+        return BrandVisualSpec("claude", "claude_burst", 18, 24)
     if role == "hermes":
-        return BrandVisualSpec("hermes", "nous_wordmark", 15, 34)
+        return BrandVisualSpec("hermes", "nous_wordmark", 18, 34)
     raise ValueError(f"unknown brand button role: {role}")
 
 
@@ -93,14 +93,26 @@ class GlassBrandButton(tk.Canvas):
         initial_width = self.s(width)
         initial_height = self.s(height)
         self._shadow = self.create_polygon(
-            *rounded_rectangle_points(1, 3, initial_width - 1, initial_height - 1, self.s(self.spec.radius)),
+            *rounded_rectangle_points(
+                1,
+                3,
+                initial_width - 1,
+                initial_height - 1,
+                self.s(self.spec.radius),
+            ),
             smooth=True,
             splinesteps=24,
             fill=self.palette.shadow,
             outline="",
         )
         self._shape = self.create_polygon(
-            *rounded_rectangle_points(1, 1, initial_width - 1, initial_height - 3, self.s(self.spec.radius)),
+            *rounded_rectangle_points(
+                1,
+                1,
+                initial_width - 1,
+                initial_height - 3,
+                self.s(self.spec.radius),
+            ),
             smooth=True,
             splinesteps=24,
             fill=self.palette.normal,
@@ -203,11 +215,23 @@ class GlassBrandButton(tk.Canvas):
         radius = min(self.s(self.spec.radius), max(1, height // 2 - 1))
         self.coords(
             self._shadow,
-            *rounded_rectangle_points(1, self.s(3), width - 1, height - 1, radius),
+            *rounded_rectangle_points(
+                1,
+                self.s(3),
+                width - 1,
+                height - 1,
+                radius,
+            ),
         )
         self.coords(
             self._shape,
-            *rounded_rectangle_points(1, 1, width - 1, height - self.s(3), radius),
+            *rounded_rectangle_points(
+                1,
+                1,
+                width - 1,
+                height - self.s(3),
+                radius,
+            ),
         )
         self.coords(
             self._highlight,
