@@ -23,9 +23,9 @@ class LauncherVisualLayoutTests(unittest.TestCase):
         )
         self.assertFalse(spec.show_settings)
 
-    def test_expanded_layout_uses_45_55_columns(self):
+    def test_expanded_layout_uses_equal_columns(self):
         spec = layout_spec(True)
-        self.assertEqual((45, 55), spec.column_weights)
+        self.assertEqual((1, 1), spec.column_weights)
         self.assertTrue(spec.show_settings)
 
     def test_runtime_sizes_follow_theme(self):
