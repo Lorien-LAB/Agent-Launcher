@@ -25,6 +25,15 @@ def _master_bg(master, fallback):
         return fallback
 
 
+def _find_backdrop_host(master):
+    current = master
+    while current is not None:
+        if hasattr(current, "register_surface") and hasattr(current, "unregister_surface"):
+            return current
+        current = getattr(current, "master", None)
+    return None
+
+
 def glass_content_inset(radius: int, padding: int) -> int:
     """Keep rectangular Tk child windows clear of the visible rounded corners."""
     return max(int(padding), int(round(float(radius) * 0.58)))
@@ -58,6 +67,7 @@ class CleanRoundedCard(tk.Canvas):
         self.content_inset = glass_content_inset(self.radius, self.padding)
         self._hovered = False
         self._focused = False
+        self._backdrop_host = _find_backdrop_host(master)
         super().__init__(
             master,
             bg=_master_bg(master, theme["window_bg"]),
@@ -106,6 +116,8 @@ class CleanRoundedCard(tk.Canvas):
             window=self.content,
         )
         self.bind("<Configure>", self._on_configure)
+        if self._backdrop_host is not None:
+            self._backdrop_host.register_surface(self)
 
     def _on_configure(self, event):
         width = max(4, int(event.width))
@@ -163,3 +175,12 @@ class CleanRoundedCard(tk.Canvas):
             else self.theme["glass_border"]
         )
         self.itemconfigure(self._shape, fill=background, outline=border)
+
+    def destroy(self):
+        if self._backdrop_host is not None:
+            try:
+                self._backdrop_host.unregister_surface(self)
+            except Exception:
+                pass
+            self._backdrop_host = None
+        super().destroy()
