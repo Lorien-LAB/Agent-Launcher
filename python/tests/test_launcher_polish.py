@@ -4,7 +4,7 @@ import pathlib
 import tempfile
 import unittest
 
-import _bootstrap  # noqa: F401
+import _bootstrap
 
 from launcher_background import GlowSpec
 from launcher_directory_row import action_kind_for_section
@@ -30,13 +30,12 @@ class LauncherPolishTests(unittest.TestCase):
         self.assertEqual(10, glass_content_inset(22, 7))
         self.assertEqual(14, glass_content_inset(18, 14))
 
-    def test_glass_surface_has_one_panel_outline_and_short_sheen(self):
+    def test_glass_surface_has_one_outline_without_sheen_fields(self):
         spec = glass_layer_spec(320, 180, 22)
         self.assertEqual((2, 3, 318, 179), spec.shadow_bounds)
         self.assertEqual((2, 2, 318, 178), spec.panel_bounds)
-        self.assertGreater(spec.sheen_end_x, spec.sheen_start_x)
-        self.assertLessEqual(spec.sheen_end_x - spec.sheen_start_x, 96)
         self.assertEqual(22, spec.outer_radius)
+        self.assertFalse(hasattr(spec, "sheen_start_x"))
 
     def test_sampled_backdrop_matches_glow_position(self):
         theme = {"purple": "#8367F4", "blue": "#527EF5"}
@@ -62,7 +61,6 @@ class LauncherPolishTests(unittest.TestCase):
             store.load()
             store.record_recent(str(first))
             store.record_recent(str(second))
-
             self.assertTrue(store.remove_recent(str(first)))
             self.assertEqual([str(second)], store.state.recent_directories)
             self.assertTrue(first.is_dir())
