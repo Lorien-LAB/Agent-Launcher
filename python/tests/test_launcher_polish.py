@@ -8,7 +8,7 @@ import _bootstrap  # noqa: F401
 
 from launcher_background import GlowSpec
 from launcher_directory_row import action_kind_for_section
-from launcher_dynamic_background import animate_glow
+from launcher_dynamic_background import animate_glow, sample_glow_color
 from launcher_geometry import stable_rounded_rectangle_points
 from launcher_scrollbar import thumb_geometry
 from launcher_state import LauncherStateStore
@@ -36,6 +36,14 @@ class LauncherPolishTests(unittest.TestCase):
         self.assertEqual((2, 2, 318, 177), spec.panel_bounds)
         self.assertGreater(spec.sheen_end_x, spec.sheen_start_x)
         self.assertLess(spec.inner_radius, spec.outer_radius)
+
+    def test_sampled_backdrop_matches_glow_position(self):
+        theme = {"purple": "#8367F4", "blue": "#527EF5"}
+        glow = GlowSpec("purple", 100, 80, 120, 0.30)
+        near = sample_glow_color("#090B12", theme, [glow], 100, 80)
+        far = sample_glow_color("#090B12", theme, [glow], 400, 400)
+        self.assertNotEqual("#090B12", near)
+        self.assertEqual("#090B12", far)
 
     def test_recent_rows_use_remove_action(self):
         self.assertEqual("remove", action_kind_for_section("recent"))
