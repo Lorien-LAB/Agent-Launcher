@@ -71,6 +71,7 @@ def build_top(view) -> None:
         on_select=view.callbacks.on_select,
         on_launch=view.callbacks.on_launch,
         on_favorite=view.callbacks.on_toggle_favorite,
+        on_remove_recent=view.callbacks.on_remove_recent,
     )
     view.directory_list.grid(
         row=2,
