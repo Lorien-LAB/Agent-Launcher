@@ -26,6 +26,13 @@ class LauncherThemeTests(unittest.TestCase):
             "border",
             "border_hover",
             "border_focus",
+            "glass_fill",
+            "glass_fill_hover",
+            "glass_content",
+            "glass_border",
+            "glass_border_bright",
+            "glass_highlight",
+            "glass_shadow",
             "text_primary",
             "text_secondary",
             "text_muted",
@@ -62,9 +69,9 @@ class LauncherThemeTests(unittest.TestCase):
     def test_metric_contract(self):
         self.assertEqual(38, METRICS.titlebar_height)
         self.assertEqual(50, METRICS.directory_row_height)
-        self.assertGreaterEqual(METRICS.card_radius, 18)
+        self.assertGreaterEqual(METRICS.card_radius, 22)
         self.assertGreaterEqual(METRICS.button_radius, 14)
-        self.assertGreaterEqual(METRICS.input_radius, 16)
+        self.assertGreaterEqual(METRICS.input_radius, 18)
         self.assertGreaterEqual(METRICS.row_radius, 14)
 
 
