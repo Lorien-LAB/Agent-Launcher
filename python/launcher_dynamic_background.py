@@ -131,7 +131,10 @@ class DynamicLauncherBackground(LauncherBackground):
                     center_x / factor,
                     center_y / factor,
                 )
-                widget.configure(bg=color)
+                if hasattr(widget, "set_backdrop_color"):
+                    widget.set_backdrop_color(color)
+                else:
+                    widget.configure(bg=color)
                 live_refs.append(reference)
             except Exception:
                 continue
