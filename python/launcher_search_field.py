@@ -58,33 +58,25 @@ class SearchField(tk.Canvas):
             bd=0,
         )
         self._shadow = self.create_polygon(
-            *stable_rounded_rectangle_points(2, 3, 100, self.s(METRICS.search_height) - 1, self.s(METRICS.input_radius)),
+            *stable_rounded_rectangle_points(2, 2, 100, self.s(METRICS.search_height) - 1, self.s(METRICS.input_radius)),
             smooth=True,
             splinesteps=24,
             fill=theme["glass_shadow"],
             outline="",
         )
         self._shape = self.create_polygon(
-            *stable_rounded_rectangle_points(1, 1, 100, self.s(METRICS.search_height) - 3, self.s(METRICS.input_radius)),
+            *stable_rounded_rectangle_points(1, 1, 100, self.s(METRICS.search_height) - 2, self.s(METRICS.input_radius)),
             smooth=True,
             splinesteps=24,
             fill=theme["glass_fill"],
             outline=theme["glass_border"],
             width=self.s(1),
         )
-        self._inner_rim = self.create_polygon(
-            *stable_rounded_rectangle_points(4, 4, 96, self.s(METRICS.search_height) - 6, max(1, self.s(METRICS.input_radius - 4))),
-            smooth=True,
-            splinesteps=24,
-            fill="",
-            outline=theme["glass_highlight"],
-            width=self.s(1),
-        )
         self._top_sheen = self.create_line(
             self.s(18),
-            self.s(4),
-            self.s(70),
-            self.s(4),
+            self.s(3),
+            self.s(64),
+            self.s(3),
             fill=theme["glass_highlight"],
             width=self.s(1),
             capstyle=tk.ROUND,
@@ -102,7 +94,7 @@ class SearchField(tk.Canvas):
             relief="flat",
             bd=0,
             highlightthickness=0,
-            bg=theme["glass_content"],
+            bg=theme["glass_fill"],
             fg=theme["text_primary"],
             insertbackground=theme["purple_light"],
             selectbackground=theme["surface_selected"],
@@ -154,22 +146,18 @@ class SearchField(tk.Canvas):
         radius = min(self.s(METRICS.input_radius), height // 2 - 1)
         self.coords(
             self._shadow,
-            *stable_rounded_rectangle_points(2, 3, width - 2, height - 1, radius),
+            *stable_rounded_rectangle_points(2, 2, width - 2, height - 1, radius),
         )
         self.coords(
             self._shape,
-            *stable_rounded_rectangle_points(1, 1, width - 1, height - 3, radius),
-        )
-        self.coords(
-            self._inner_rim,
-            *stable_rounded_rectangle_points(4, 4, width - 4, height - 6, max(1, radius - self.s(4))),
+            *stable_rounded_rectangle_points(1, 1, width - 1, height - 2, radius),
         )
         self.coords(
             self._top_sheen,
             self.s(18),
-            self.s(4),
-            max(self.s(18), width - self.s(30)),
-            self.s(4),
+            self.s(3),
+            min(width - self.s(24), self.s(78)),
+            self.s(3),
         )
         entry_x = self.s(self.metrics.text_x)
         clear_margin = self.s(self.metrics.clear_x_margin)
@@ -218,6 +206,7 @@ class SearchField(tk.Canvas):
             else self.theme["glass_fill"]
         )
         self.itemconfigure(self._shape, outline=border, fill=fill)
+        self.entry.configure(bg=fill)
         self.itemconfigure(
             self._search_icon,
             fill=self.theme["purple_light"] if self._focused else self.theme["text_secondary"],
