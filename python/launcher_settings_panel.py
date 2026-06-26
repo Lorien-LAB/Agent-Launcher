@@ -5,26 +5,19 @@ import tkinter as tk
 from launcher_appearance_card import TerminalAppearanceCard
 from launcher_launch_card import LaunchOptionsCard
 from launcher_settings_models import appearance_status_text, project_summary, resolved_theme
+from launcher_surfaces import BackdropFrame
 
 
 def visible_settings_cards() -> tuple[str, ...]:
     return ("launch_options", "appearance")
 
 
-class LauncherSettingsPanel(tk.Frame):
-    def __init__(
-        self,
-        master,
-        colors=None,
-        scale=lambda value: value,
-        callbacks=None,
-        *,
-        theme=None,
-    ):
+class LauncherSettingsPanel(BackdropFrame):
+    def __init__(self, master, colors=None, scale=lambda value: value, callbacks=None, *, theme=None):
         self.theme = resolved_theme(theme, colors)
         self.s = scale
         self.callbacks = callbacks
-        super().__init__(master, bg=self.theme["window_bg"])
+        super().__init__(master, theme=self.theme)
         self.grid_columnconfigure(0, weight=1)
 
         self.launch_options_card = LaunchOptionsCard(
@@ -33,11 +26,7 @@ class LauncherSettingsPanel(tk.Frame):
             scale=self.s,
             callbacks=callbacks,
         )
-        self.launch_options_card.grid(
-            row=0,
-            column=0,
-            sticky="ew",
-        )
+        self.launch_options_card.grid(row=0, column=0, sticky="ew")
 
         self.appearance_card = TerminalAppearanceCard(
             self,
@@ -53,7 +42,6 @@ class LauncherSettingsPanel(tk.Frame):
         )
 
     def set_project(self, _path):
-        """Preserve the view API without rendering selected-project details."""
         return None
 
     def set_launch_options(self, options):
