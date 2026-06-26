@@ -65,6 +65,8 @@ class DirectoryList(CleanRoundedCard):
         self.selected_path = None
         self.row_widgets = {}
         self.panel_bg = self.theme["glass_content"]
+        self.panel_theme = dict(self.theme)
+        self.panel_theme["surface_1"] = self.panel_bg
         super().__init__(
             master,
             theme=self.theme,
@@ -85,7 +87,7 @@ class DirectoryList(CleanRoundedCard):
         self.scrollbar = PillScrollbar(
             self.content,
             command=self.canvas.yview,
-            theme=self.theme,
+            theme=self.panel_theme,
             scale=self.s,
             on_visibility_change=self._set_scrollbar_visible,
         )
@@ -144,7 +146,7 @@ class DirectoryList(CleanRoundedCard):
             widget = DirectoryRowWidget(
                 self.body,
                 row,
-                theme=self.theme,
+                theme=self.panel_theme,
                 scale=self.s,
                 on_select=self.on_select,
                 on_launch=self.on_launch,
