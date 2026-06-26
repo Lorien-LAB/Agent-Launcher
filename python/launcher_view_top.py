@@ -4,7 +4,7 @@ from launcher_directory_list import DirectoryList
 from launcher_dynamic_background import DynamicLauncherBackground
 from launcher_search_field import SearchField
 from launcher_settings_panel import LauncherSettingsPanel
-from launcher_surfaces import CleanRoundedCard
+from launcher_surfaces import BackdropFrame
 from launcher_titlebar import LauncherTitleBar
 from launcher_widgets import GhostButton
 
@@ -31,30 +31,22 @@ def build_top(view) -> None:
     view.titlebar.grid(row=0, column=0, columnspan=2, sticky="ew")
 
     panel_theme = dict(theme)
-    panel_theme["surface_1"] = theme["glass_content"]
-    view.search_toolbar = CleanRoundedCard(
-        view.background,
-        theme=theme,
-        scale=view.s,
-        height=view.s(64),
-        radius=18,
-        padding=10,
-    )
+    panel_theme["surface_1"] = theme["glass_fill"]
+    view.search_toolbar = BackdropFrame(view.background, theme=theme)
     view.search_toolbar.grid(
         row=1,
         column=0,
         columnspan=2,
         sticky="ew",
         padx=view.s(12),
-        pady=(view.s(8), view.s(6)),
+        pady=(view.s(10), view.s(8)),
     )
-    search_row = view.search_toolbar.content
-    search_row.grid_columnconfigure(0, weight=1)
+    view.search_toolbar.grid_columnconfigure(0, weight=1)
 
     view.search_field = SearchField(
-        search_row,
+        view.search_toolbar,
         variable=view.search_var,
-        theme=panel_theme,
+        theme=theme,
         scale=view.s,
         placeholder="Search projects or directories…",
         on_submit=lambda: view._launch("claude"),
@@ -63,7 +55,7 @@ def build_top(view) -> None:
     view.search_entry = view.search_field.entry
 
     view.refresh_button = GhostButton(
-        search_row,
+        view.search_toolbar,
         text="↻",
         command=view.callbacks.on_refresh_index,
         theme=panel_theme,
