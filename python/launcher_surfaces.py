@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import tkinter as tk
 
 from launcher_geometry import stable_rounded_rectangle_points
+from launcher_theme import interpolate_hex
 
 
 @dataclass(frozen=True)
@@ -88,9 +89,10 @@ class CleanRoundedCard(tk.Canvas):
         self._hovered = False
         self._focused = False
         self._backdrop_host = _find_backdrop_host(master)
+        self._backdrop_color = _master_bg(master, theme["window_bg"])
         super().__init__(
             master,
-            bg=_master_bg(master, theme["window_bg"]),
+            bg=self._backdrop_color,
             highlightthickness=0,
             bd=0,
             **kwargs,
@@ -106,7 +108,7 @@ class CleanRoundedCard(tk.Canvas):
             *stable_rounded_rectangle_points(2, 2, 4, 4, 1),
             smooth=True,
             splinesteps=24,
-            fill=theme["glass_fill"],
+            fill=self._panel_fill(),
             outline=theme["glass_border"],
             width=self.s(1),
         )
@@ -138,6 +140,19 @@ class CleanRoundedCard(tk.Canvas):
         self.bind("<Configure>", self._on_configure)
         if self._backdrop_host is not None:
             self._backdrop_host.register_surface(self)
+
+    def _panel_fill(self):
+        target = (
+            self.theme["glass_fill_hover"]
+            if self._hovered
+            else self.theme["glass_fill"]
+        )
+        return interpolate_hex(self._backdrop_color, target, 0.74)
+
+    def set_backdrop_color(self, color):
+        self._backdrop_color = str(color)
+        self.configure(bg=self._backdrop_color)
+        self.itemconfigure(self._shape, fill=self._panel_fill())
 
     def _on_configure(self, event):
         width = max(4, int(event.width))
@@ -182,11 +197,6 @@ class CleanRoundedCard(tk.Canvas):
     def set_interactive_state(self, *, hovered=False, focused=False):
         self._hovered = bool(hovered)
         self._focused = bool(focused)
-        background = (
-            self.theme["glass_fill_hover"]
-            if self._hovered
-            else self.theme["glass_fill"]
-        )
         border = (
             self.theme["glass_border_bright"]
             if self._focused
@@ -194,7 +204,7 @@ class CleanRoundedCard(tk.Canvas):
             if self._hovered
             else self.theme["glass_border"]
         )
-        self.itemconfigure(self._shape, fill=background, outline=border)
+        self.itemconfigure(self._shape, fill=self._panel_fill(), outline=border)
 
     def destroy(self):
         if self._backdrop_host is not None:
