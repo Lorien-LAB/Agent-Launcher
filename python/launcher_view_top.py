@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import tkinter as tk
-
 from launcher_directory_list import DirectoryList
 from launcher_dynamic_background import DynamicLauncherBackground
 from launcher_search_field import SearchField
 from launcher_settings_panel import LauncherSettingsPanel
+from launcher_surfaces import CleanRoundedCard
 from launcher_titlebar import LauncherTitleBar
 from launcher_widgets import GhostButton
 
@@ -31,21 +30,31 @@ def build_top(view) -> None:
     )
     view.titlebar.grid(row=0, column=0, columnspan=2, sticky="ew")
 
-    search_row = tk.Frame(view.background, bg=theme["window_bg"])
-    search_row.grid(
+    panel_theme = dict(theme)
+    panel_theme["surface_1"] = theme["glass_content"]
+    view.search_toolbar = CleanRoundedCard(
+        view.background,
+        theme=theme,
+        scale=view.s,
+        height=view.s(64),
+        radius=18,
+        padding=10,
+    )
+    view.search_toolbar.grid(
         row=1,
         column=0,
         columnspan=2,
         sticky="ew",
         padx=view.s(12),
-        pady=(view.s(10), view.s(8)),
+        pady=(view.s(8), view.s(6)),
     )
+    search_row = view.search_toolbar.content
     search_row.grid_columnconfigure(0, weight=1)
 
     view.search_field = SearchField(
         search_row,
         variable=view.search_var,
-        theme=theme,
+        theme=panel_theme,
         scale=view.s,
         placeholder="Search projects or directories…",
         on_submit=lambda: view._launch("claude"),
@@ -57,7 +66,7 @@ def build_top(view) -> None:
         search_row,
         text="↻",
         command=view.callbacks.on_refresh_index,
-        theme=theme,
+        theme=panel_theme,
         scale=view.s,
         width=42,
         height=40,
