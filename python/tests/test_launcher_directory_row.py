@@ -54,6 +54,7 @@ class LauncherDirectoryRowTests(unittest.TestCase):
     def test_geometry_removes_folder_icon_and_enlarges_favorite(self):
         geometry = directory_row_geometry(320, scale=1.0)
         self.assertLessEqual(geometry.text_x, 16)
+        self.assertGreaterEqual(geometry.name_font_size, 11)
         self.assertGreaterEqual(geometry.favorite_font_size, 14)
         self.assertGreaterEqual(geometry.favorite_hit_radius, 16)
         self.assertGreater(geometry.text_width, 240)
