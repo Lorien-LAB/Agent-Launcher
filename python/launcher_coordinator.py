@@ -42,6 +42,7 @@ class LauncherCoordinator:
             on_appearance_cancel=self.cancel_appearance,
             on_open_explorer=self.open_selected_directory,
             on_copy_path=self.copy_selected_path,
+            on_remove_recent=self.remove_recent,
         )
 
     def attach_view(self, view):
@@ -100,6 +101,15 @@ class LauncherCoordinator:
             self._set_error(f"Unable to update favorite: {exc}")
             return
         self._render_current_query()
+
+    def remove_recent(self, path):
+        try:
+            changed = self.state_store.remove_recent(path)
+        except OSError as exc:
+            self._set_error(f"Unable to remove recent directory: {exc}")
+            return
+        if changed:
+            self._render_current_query()
 
     def search(self, query):
         if not self.view:
