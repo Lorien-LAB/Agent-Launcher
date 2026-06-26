@@ -54,7 +54,7 @@ def layout_spec(expanded: bool) -> LayoutSpec:
                 "status",
             )
         ),
-        column_weights=(45, 55),
+        column_weights=(1, 1),
         show_settings=bool(expanded),
     )
 
