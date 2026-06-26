@@ -9,13 +9,18 @@ class LauncherViewLayout:
     def _apply_layout(self, expanded):
         spec = layout_spec(expanded)
         left_weight, right_weight = spec.column_weights
+        uniform = "launcher_equal_columns" if expanded else ""
         self.background.grid_columnconfigure(
             0,
             weight=left_weight if expanded else 1,
+            minsize=0,
+            uniform=uniform,
         )
         self.background.grid_columnconfigure(
             1,
             weight=right_weight if expanded else 0,
+            minsize=0,
+            uniform=uniform,
         )
         if expanded:
             self.directory_list.grid_configure(
