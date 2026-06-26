@@ -4,7 +4,12 @@ import unittest
 
 import _bootstrap  # noqa: F401
 
-from launcher_settings_panel import appearance_status_text, project_summary
+from launcher_settings_panel import (
+    appearance_status_text,
+    project_summary,
+    visible_settings_cards,
+)
+from launcher_view_footer import compact_footer_sections
 
 
 class LauncherSettingsPanelHelperTests(unittest.TestCase):
@@ -23,6 +28,15 @@ class LauncherSettingsPanelHelperTests(unittest.TestCase):
         self.assertEqual("Previewing", appearance_status_text(True, False))
         self.assertEqual("Applied", appearance_status_text(False, True))
         self.assertEqual("No changes", appearance_status_text(False, False))
+
+    def test_current_project_is_not_a_visible_settings_card(self):
+        self.assertEqual(
+            ("launch_options", "appearance"),
+            visible_settings_cards(),
+        )
+
+    def test_compact_footer_only_contains_launch_actions(self):
+        self.assertEqual(("launch_actions",), compact_footer_sections())
 
 
 if __name__ == "__main__":
