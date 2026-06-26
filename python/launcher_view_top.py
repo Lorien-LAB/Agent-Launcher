@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from launcher_background import LauncherBackground
 from launcher_directory_list import DirectoryList
+from launcher_dynamic_background import DynamicLauncherBackground
 from launcher_search_field import SearchField
 from launcher_settings_panel import LauncherSettingsPanel
 from launcher_titlebar import LauncherTitleBar
@@ -12,7 +12,7 @@ from launcher_widgets import GhostButton
 
 def build_top(view) -> None:
     theme = view.theme
-    view.background = LauncherBackground(view.root, theme=theme, scale=view.s)
+    view.background = DynamicLauncherBackground(view.root, theme=theme, scale=view.s)
     view.background.pack(fill="both", expand=True)
     view.container = view.background
     view.background.grid_rowconfigure(2, weight=1)
