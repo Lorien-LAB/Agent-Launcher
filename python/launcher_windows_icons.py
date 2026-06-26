@@ -34,3 +34,4 @@ def windows_icon_font(available_families: set[str]) -> str:
 
 SEARCH_GLYPH = "\ue721"
 CLEAR_GLYPH = "\ue711"
+DELETE_GLYPH = "\ue74d"
