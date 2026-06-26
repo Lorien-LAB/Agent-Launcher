@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from launcher_branding import GlassBrandButton
 from launcher_surfaces import CleanRoundedCard
+from launcher_theme import METRICS
 
 
 def compact_footer_sections() -> tuple[str, ...]:
@@ -10,12 +11,14 @@ def compact_footer_sections() -> tuple[str, ...]:
 
 def build_footer(view) -> None:
     theme = view.theme
+    panel_theme = dict(theme)
+    panel_theme["surface_1"] = theme["glass_content"]
     view.compact_footer = CleanRoundedCard(
         view.background,
         theme=theme,
         scale=view.s,
-        height=view.s(58),
-        radius=18,
+        height=view.s(64),
+        radius=METRICS.card_radius,
         padding=10,
     )
     view.compact_footer.grid(
@@ -36,7 +39,7 @@ def build_footer(view) -> None:
         role="claude",
         text="Claude Code",
         command=lambda: view._launch("claude"),
-        theme=theme,
+        theme=panel_theme,
         scale=view.s,
         width=145,
         height=38,
@@ -48,7 +51,7 @@ def build_footer(view) -> None:
         role="hermes",
         text="Hermes",
         command=lambda: view._launch("hermes"),
-        theme=theme,
+        theme=panel_theme,
         scale=view.s,
         width=120,
         height=38,
