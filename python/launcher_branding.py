@@ -5,8 +5,9 @@ import math
 import tkinter as tk
 import tkinter.font as tkfont
 
+from launcher_geometry import stable_rounded_rectangle_points
 from launcher_theme import interpolate_hex
-from launcher_widgets import WidgetVisualState, resolve_button_colors, rounded_rectangle_points
+from launcher_widgets import WidgetVisualState, resolve_button_colors
 
 
 @dataclass(frozen=True)
@@ -43,21 +44,19 @@ def glass_palette(theme: dict, role: str) -> GlassPalette:
     accent = theme[spec.role]
     base = theme["surface_1"]
     return GlassPalette(
-        normal=interpolate_hex(base, accent, 0.18),
-        hover=interpolate_hex(base, accent, 0.28),
-        pressed=interpolate_hex(base, accent, 0.38),
+        normal=interpolate_hex(base, accent, 0.14),
+        hover=interpolate_hex(base, accent, 0.22),
+        pressed=interpolate_hex(base, accent, 0.30),
         disabled=theme["surface_0"],
-        border=interpolate_hex(accent, theme["text_primary"], 0.18),
-        highlight=interpolate_hex(base, theme["text_primary"], 0.12),
+        border=interpolate_hex(accent, theme["text_primary"], 0.10),
+        highlight=interpolate_hex(base, theme["text_primary"], 0.06),
         text=theme["text_primary"],
         icon="#FFF5EC" if role == "claude" else "#FFF7E8",
-        shadow=interpolate_hex(theme["window_bg"], "#000000", 0.42),
+        shadow=interpolate_hex(theme["window_bg"], "#000000", 0.28),
     )
 
 
 class GlassBrandButton(tk.Canvas):
-    """Glass-tinted brand button with vector Claude and Nous/Hermes marks."""
-
     def __init__(
         self,
         master,
@@ -93,10 +92,10 @@ class GlassBrandButton(tk.Canvas):
         initial_width = self.s(width)
         initial_height = self.s(height)
         self._shadow = self.create_polygon(
-            *rounded_rectangle_points(
-                1,
-                3,
-                initial_width - 1,
+            *stable_rounded_rectangle_points(
+                2,
+                2,
+                initial_width - 2,
                 initial_height - 1,
                 self.s(self.spec.radius),
             ),
@@ -106,11 +105,11 @@ class GlassBrandButton(tk.Canvas):
             outline="",
         )
         self._shape = self.create_polygon(
-            *rounded_rectangle_points(
+            *stable_rounded_rectangle_points(
                 1,
                 1,
                 initial_width - 1,
-                initial_height - 3,
+                initial_height - 2,
                 self.s(self.spec.radius),
             ),
             smooth=True,
@@ -120,9 +119,9 @@ class GlassBrandButton(tk.Canvas):
             width=self.s(1),
         )
         self._highlight = self.create_line(
-            self.s(14),
+            self.s(18),
             self.s(3),
-            initial_width - self.s(14),
+            min(initial_width - self.s(24), self.s(78)),
             self.s(3),
             fill=self.palette.highlight,
             width=self.s(1),
@@ -215,29 +214,17 @@ class GlassBrandButton(tk.Canvas):
         radius = min(self.s(self.spec.radius), max(1, height // 2 - 1))
         self.coords(
             self._shadow,
-            *rounded_rectangle_points(
-                1,
-                self.s(3),
-                width - 1,
-                height - 1,
-                radius,
-            ),
+            *stable_rounded_rectangle_points(2, 2, width - 2, height - 1, radius),
         )
         self.coords(
             self._shape,
-            *rounded_rectangle_points(
-                1,
-                1,
-                width - 1,
-                height - self.s(3),
-                radius,
-            ),
+            *stable_rounded_rectangle_points(1, 1, width - 1, height - 2, radius),
         )
         self.coords(
             self._highlight,
-            self.s(14),
+            self.s(18),
             self.s(3),
-            width - self.s(14),
+            min(width - self.s(24), self.s(78)),
             self.s(3),
         )
 
@@ -247,7 +234,7 @@ class GlassBrandButton(tk.Canvas):
         group_width = icon_width + gap + label_width
         start_x = max(self.s(10), (width - group_width) // 2)
         icon_center_x = start_x + icon_width // 2
-        center_y = max(1, (height - self.s(2)) // 2)
+        center_y = max(1, (height - self.s(1)) // 2)
         self.coords(self._label, start_x + icon_width + gap, center_y)
         self._position_brand(icon_center_x, center_y)
 
@@ -274,11 +261,7 @@ class GlassBrandButton(tk.Canvas):
             pressed=self.palette.pressed,
             disabled=self.palette.disabled,
         )
-        border = (
-            self.theme["border_focus"]
-            if self._state.focused
-            else self.palette.border
-        )
+        border = self.theme["border_focus"] if self._state.focused else self.palette.border
         text = self.palette.text if self._state.enabled else self.theme["text_disabled"]
         icon = self.palette.icon if self._state.enabled else self.theme["text_disabled"]
         self.itemconfigure(self._shape, fill=resolved.background, outline=border)
