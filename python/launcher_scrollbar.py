@@ -41,7 +41,7 @@ class PillScrollbar(tk.Canvas):
         self._drag_start_first = 0.0
         super().__init__(
             master,
-            width=self.s(12),
+            width=self.s(10),
             bg=_master_bg(master, theme["glass_content"]),
             highlightthickness=0,
             bd=0,
@@ -73,7 +73,7 @@ class PillScrollbar(tk.Canvas):
             self.first,
             self.last,
             height=max(1, int(self.winfo_height())),
-            min_height=self.s(34),
+            min_height=self.s(32),
             inset=self.s(4),
         )
 
@@ -91,19 +91,19 @@ class PillScrollbar(tk.Canvas):
         height = max(2, int(self.winfo_height()))
         center = width // 2
         top, bottom = self._thumb_bounds()
-        self.coords(self._track, center, self.s(5), center, height - self.s(5))
+        self.coords(self._track, center, self.s(6), center, height - self.s(6))
         self.coords(self._thumb, center, top, center, bottom)
         self.itemconfigure(
             self._track,
             state="normal",
-            fill=self.theme["glass_border"] if self._hovered else self.theme["surface_2"],
-            width=self.s(3),
+            fill=self.theme["border"] if self._hovered else self.theme["surface_2"],
+            width=self.s(2),
         )
         self.itemconfigure(
             self._thumb,
             state="normal",
-            fill=self.theme["blue_light"] if self._hovered else self.theme["border_hover"],
-            width=self.s(8 if self._hovered else 6),
+            fill=self.theme["border_hover"] if self._hovered else self.theme["glass_border"],
+            width=self.s(7 if self._hovered else 5),
         )
 
     def _press(self, event):
