@@ -20,6 +20,13 @@ def thumb_geometry(first, last, *, height, min_height=34, inset=3):
     return top, bottom
 
 
+def _master_bg(master, fallback):
+    try:
+        return master.cget("bg")
+    except (AttributeError, tk.TclError):
+        return fallback
+
+
 class PillScrollbar(tk.Canvas):
     def __init__(self, master, *, command, theme, scale, on_visibility_change=None):
         self.command = command
@@ -32,7 +39,13 @@ class PillScrollbar(tk.Canvas):
         self._hovered = False
         self._drag_start_y = None
         self._drag_start_first = 0.0
-        super().__init__(master, width=self.s(12), bg=theme["surface_1"], highlightthickness=0, bd=0)
+        super().__init__(
+            master,
+            width=self.s(12),
+            bg=_master_bg(master, theme["glass_content"]),
+            highlightthickness=0,
+            bd=0,
+        )
         self._track = self.create_line(0, 0, 0, 0, capstyle=tk.ROUND, state="hidden")
         self._thumb = self.create_line(0, 0, 0, 0, capstyle=tk.ROUND, state="hidden")
         self.bind("<Configure>", lambda _event: self._render())
@@ -56,7 +69,13 @@ class PillScrollbar(tk.Canvas):
         return self._visible
 
     def _thumb_bounds(self):
-        return thumb_geometry(self.first, self.last, height=max(1, int(self.winfo_height())), min_height=self.s(34), inset=self.s(4))
+        return thumb_geometry(
+            self.first,
+            self.last,
+            height=max(1, int(self.winfo_height())),
+            min_height=self.s(34),
+            inset=self.s(4),
+        )
 
     def _set_hovered(self, hovered):
         self._hovered = bool(hovered)
@@ -74,8 +93,18 @@ class PillScrollbar(tk.Canvas):
         top, bottom = self._thumb_bounds()
         self.coords(self._track, center, self.s(5), center, height - self.s(5))
         self.coords(self._thumb, center, top, center, bottom)
-        self.itemconfigure(self._track, state="normal", fill=self.theme["border"] if self._hovered else self.theme["surface_2"], width=self.s(4))
-        self.itemconfigure(self._thumb, state="normal", fill=self.theme["blue_light"] if self._hovered else self.theme["border_hover"], width=self.s(8 if self._hovered else 6))
+        self.itemconfigure(
+            self._track,
+            state="normal",
+            fill=self.theme["glass_border"] if self._hovered else self.theme["surface_2"],
+            width=self.s(3),
+        )
+        self.itemconfigure(
+            self._thumb,
+            state="normal",
+            fill=self.theme["blue_light"] if self._hovered else self.theme["border_hover"],
+            width=self.s(8 if self._hovered else 6),
+        )
 
     def _press(self, event):
         if not self._visible:
