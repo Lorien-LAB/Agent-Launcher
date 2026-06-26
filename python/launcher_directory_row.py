@@ -22,6 +22,7 @@ class DirectoryRowGeometry:
     text_x: int
     star_x: int
     text_width: int
+    name_font_size: int
     favorite_font_size: int
     favorite_hit_radius: int
 
@@ -41,17 +42,18 @@ def build_row_presentation(
 def directory_row_geometry(width: int, scale: float = 1.0) -> DirectoryRowGeometry:
     factor = max(0.01, float(scale))
     text_x = round(14 * factor)
-    star_x = max(text_x + 48, int(width) - round(22 * factor))
-    favorite_hit_radius = round(16 * factor)
+    star_x = max(text_x + 52, int(width) - round(23 * factor))
+    favorite_hit_radius = round(17 * factor)
     text_width = max(
         round(24 * factor),
-        star_x - text_x - round(26 * factor),
+        star_x - text_x - round(28 * factor),
     )
     return DirectoryRowGeometry(
         text_x=text_x,
         star_x=star_x,
         text_width=text_width,
-        favorite_font_size=14,
+        name_font_size=11,
+        favorite_font_size=16,
         favorite_hit_radius=favorite_hit_radius,
     )
 
@@ -143,10 +145,11 @@ class DirectoryRowWidget(tk.Canvas):
             path_limit=72,
         )
         self._scale_factor = max(0.01, float(self.s(100)) / 100.0)
+        geometry = directory_row_geometry(320, self._scale_factor)
         self._name_font = tkfont.Font(
             root=master,
             family="Segoe UI Semibold",
-            size=9,
+            size=geometry.name_font_size,
         )
         self._path_font = tkfont.Font(
             root=master,
@@ -156,7 +159,7 @@ class DirectoryRowWidget(tk.Canvas):
         self._favorite_font = tkfont.Font(
             root=master,
             family="Segoe UI Symbol",
-            size=directory_row_geometry(320).favorite_font_size,
+            size=geometry.favorite_font_size,
         )
         super().__init__(
             master,
@@ -187,7 +190,7 @@ class DirectoryRowWidget(tk.Canvas):
         self._background = self.create_polygon(
             *rounded_rectangle_points(1, 1, 2, 2, 1),
             smooth=True,
-            splinesteps=20,
+            splinesteps=24,
             fill=self.theme["surface_1"],
             outline="",
         )
@@ -258,9 +261,9 @@ class DirectoryRowWidget(tk.Canvas):
         self.coords(
             self._selected_bar,
             1,
-            self.s(6),
+            self.s(7),
             self.s(METRICS.selected_bar_width) + 1,
-            height - self.s(6),
+            height - self.s(7),
         )
         display_name = fit_text_to_width(
             self.presentation.name,
@@ -274,8 +277,8 @@ class DirectoryRowWidget(tk.Canvas):
         )
         self.itemconfigure(self._name, text=display_name)
         self.itemconfigure(self._path, text=display_path)
-        self.coords(self._name, geometry.text_x, self.s(14))
-        self.coords(self._path, geometry.text_x, self.s(30))
+        self.coords(self._name, geometry.text_x, self.s(16))
+        self.coords(self._path, geometry.text_x, self.s(35))
         radius = geometry.favorite_hit_radius
         self.coords(
             self._star_hit,
