@@ -12,9 +12,6 @@ class GlassLayerSpec:
     shadow_bounds: tuple[int, int, int, int]
     panel_bounds: tuple[int, int, int, int]
     outer_radius: int
-    sheen_start_x: int
-    sheen_end_x: int
-    sheen_y: int
 
 
 def _master_bg(master, fallback):
@@ -41,15 +38,10 @@ def glass_layer_spec(width: int, height: int, radius: int) -> GlassLayerSpec:
     width = max(4, int(width))
     height = max(6, int(height))
     outer_radius = max(1, min(int(radius), width // 2 - 1, height // 2 - 1))
-    sheen_start = min(width - 2, max(14, outer_radius))
-    sheen_length = min(96, max(36, width // 4))
     return GlassLayerSpec(
         shadow_bounds=(2, 3, width - 2, height - 1),
         panel_bounds=(2, 2, width - 2, height - 2),
         outer_radius=outer_radius,
-        sheen_start_x=sheen_start,
-        sheen_end_x=min(width - 18, sheen_start + sheen_length),
-        sheen_y=4,
     )
 
 
@@ -110,12 +102,6 @@ class CleanRoundedCard(tk.Canvas):
             outline=theme["glass_border"],
             width=self.s(1),
         )
-        self._top_sheen = self.create_line(
-            0, 0, 0, 0,
-            fill=theme["glass_highlight"],
-            width=self.s(1),
-            capstyle=tk.ROUND,
-        )
         self.content = tk.Frame(self, bg=theme["glass_content"])
         inset = self.s(self.content_inset)
         self._content_window = self.create_window(inset, inset, anchor="nw", window=self.content)
@@ -138,7 +124,6 @@ class CleanRoundedCard(tk.Canvas):
         spec = glass_layer_spec(width, height, self.s(self.radius))
         self.coords(self._shadow, *stable_rounded_rectangle_points(*spec.shadow_bounds, spec.outer_radius))
         self.coords(self._shape, *stable_rounded_rectangle_points(*spec.panel_bounds, spec.outer_radius))
-        self.coords(self._top_sheen, spec.sheen_start_x, spec.sheen_y, spec.sheen_end_x, spec.sheen_y)
         inset = self.s(self.content_inset)
         self.coords(self._content_window, inset, inset)
         self.itemconfigure(self._content_window, width=max(1, width - inset * 2), height=max(1, height - inset * 2))
