@@ -61,8 +61,11 @@ class LauncherThemeTests(unittest.TestCase):
 
     def test_metric_contract(self):
         self.assertEqual(38, METRICS.titlebar_height)
-        self.assertEqual(44, METRICS.directory_row_height)
-        self.assertEqual(12, METRICS.card_radius)
+        self.assertEqual(50, METRICS.directory_row_height)
+        self.assertGreaterEqual(METRICS.card_radius, 18)
+        self.assertGreaterEqual(METRICS.button_radius, 14)
+        self.assertGreaterEqual(METRICS.input_radius, 16)
+        self.assertGreaterEqual(METRICS.row_radius, 14)
 
 
 if __name__ == "__main__":
