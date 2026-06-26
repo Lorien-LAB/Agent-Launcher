@@ -31,6 +31,7 @@ class LauncherCallbacks:
     on_appearance_cancel: object
     on_open_explorer: object
     on_copy_path: object
+    on_remove_recent: object = None
 
 
 @dataclass(frozen=True)
