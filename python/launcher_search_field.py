@@ -4,8 +4,8 @@ from dataclasses import dataclass
 import tkinter as tk
 import tkinter.font as tkfont
 
+from launcher_geometry import stable_rounded_rectangle_points
 from launcher_theme import METRICS
-from launcher_widgets import rounded_rectangle_points
 from launcher_windows_icons import CLEAR_GLYPH, SEARCH_GLYPH, windows_icon_font
 
 
@@ -48,16 +48,8 @@ class SearchField(tk.Canvas):
         self._focused = False
         self._hovered = False
         family = windows_icon_font(set(tkfont.families(master)))
-        self._icon_font = tkfont.Font(
-            root=master,
-            family=family,
-            size=self.metrics.font_size,
-        )
-        self._clear_font = tkfont.Font(
-            root=master,
-            family=family,
-            size=12,
-        )
+        self._icon_font = tkfont.Font(root=master, family=family, size=self.metrics.font_size)
+        self._clear_font = tkfont.Font(root=master, family=family, size=12)
         super().__init__(
             master,
             height=self.s(METRICS.search_height),
@@ -66,7 +58,7 @@ class SearchField(tk.Canvas):
             bd=0,
         )
         self._shape = self.create_polygon(
-            *rounded_rectangle_points(
+            *stable_rounded_rectangle_points(
                 1,
                 1,
                 100,
@@ -143,7 +135,7 @@ class SearchField(tk.Canvas):
         height = max(2, int(event.height))
         self.coords(
             self._shape,
-            *rounded_rectangle_points(
+            *stable_rounded_rectangle_points(
                 1,
                 1,
                 width - 1,
@@ -158,16 +150,8 @@ class SearchField(tk.Canvas):
             width=max(1, width - entry_x - self.s(34)),
         )
         self.coords(self._entry_window, entry_x, height // 2)
-        self.coords(
-            self._search_icon,
-            self.s(self.metrics.icon_x),
-            height // 2,
-        )
-        self.coords(
-            self._placeholder,
-            self.s(self.metrics.text_x + 2),
-            height // 2,
-        )
+        self.coords(self._search_icon, self.s(self.metrics.icon_x), height // 2)
+        self.coords(self._placeholder, self.s(self.metrics.text_x + 2), height // 2)
         self.coords(self._clear, width - clear_margin, height // 2)
 
     def _submit(self, _event=None):
@@ -181,10 +165,7 @@ class SearchField(tk.Canvas):
             self._placeholder,
             state="hidden" if has_value or self._focused else "normal",
         )
-        self.itemconfigure(
-            self._clear,
-            state="normal" if has_value else "hidden",
-        )
+        self.itemconfigure(self._clear, state="normal" if has_value else "hidden")
 
     def _set_hovered(self, hovered):
         self._hovered = bool(hovered)
@@ -199,20 +180,12 @@ class SearchField(tk.Canvas):
         border = (
             self.theme["border_focus"]
             if self._focused
-            else (
-                self.theme["border_hover"]
-                if self._hovered
-                else self.theme["border"]
-            )
+            else self.theme["border_hover"] if self._hovered else self.theme["border"]
         )
         self.itemconfigure(self._shape, outline=border)
         self.itemconfigure(
             self._search_icon,
-            fill=(
-                self.theme["purple_light"]
-                if self._focused
-                else self.theme["text_secondary"]
-            ),
+            fill=self.theme["purple_light"] if self._focused else self.theme["text_secondary"],
         )
 
     def focus(self):
