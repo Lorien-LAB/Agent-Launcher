@@ -6,8 +6,9 @@ import unittest
 
 import _bootstrap  # noqa: F401
 
-from launcher_background import GlowSpec, animate_glow
+from launcher_background import GlowSpec
 from launcher_directory_row import action_kind_for_section
+from launcher_dynamic_background import animate_glow
 from launcher_geometry import stable_rounded_rectangle_points
 from launcher_scrollbar import thumb_geometry
 from launcher_state import LauncherStateStore
