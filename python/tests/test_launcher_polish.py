@@ -26,16 +26,17 @@ class LauncherPolishTests(unittest.TestCase):
         self.assertLessEqual(max(ys), 43)
         self.assertGreaterEqual(len(points), 40)
 
-    def test_glass_content_stays_clear_of_rounded_corners(self):
-        self.assertEqual(13, glass_content_inset(22, 7))
+    def test_glass_content_stays_inside_corners_without_excessive_padding(self):
+        self.assertEqual(10, glass_content_inset(22, 7))
         self.assertEqual(14, glass_content_inset(18, 14))
 
-    def test_glass_surface_has_shadow_rim_and_sheen(self):
+    def test_glass_surface_has_one_panel_outline_and_short_sheen(self):
         spec = glass_layer_spec(320, 180, 22)
-        self.assertEqual((2, 4, 318, 179), spec.shadow_bounds)
-        self.assertEqual((2, 2, 318, 177), spec.panel_bounds)
+        self.assertEqual((2, 3, 318, 179), spec.shadow_bounds)
+        self.assertEqual((2, 2, 318, 178), spec.panel_bounds)
         self.assertGreater(spec.sheen_end_x, spec.sheen_start_x)
-        self.assertLess(spec.inner_radius, spec.outer_radius)
+        self.assertLessEqual(spec.sheen_end_x - spec.sheen_start_x, 96)
+        self.assertEqual(22, spec.outer_radius)
 
     def test_sampled_backdrop_matches_glow_position(self):
         theme = {"purple": "#8367F4", "blue": "#527EF5"}
