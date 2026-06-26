@@ -56,6 +56,26 @@ def glass_layer_spec(width: int, height: int, radius: int) -> GlassLayerSpec:
     )
 
 
+class BackdropFrame(tk.Frame):
+    """Opaque Tk frame whose background follows the animated backdrop color."""
+
+    def __init__(self, master, *, theme, **kwargs):
+        self.theme = theme
+        self._backdrop_host = _find_backdrop_host(master)
+        super().__init__(master, bg=_master_bg(master, theme["window_bg"]), **kwargs)
+        if self._backdrop_host is not None:
+            self._backdrop_host.register_surface(self)
+
+    def destroy(self):
+        if self._backdrop_host is not None:
+            try:
+                self._backdrop_host.unregister_surface(self)
+            except Exception:
+                pass
+            self._backdrop_host = None
+        super().destroy()
+
+
 class CleanRoundedCard(tk.Canvas):
     """Layered pseudo-transparent panel that keeps child widgets inside its corners."""
 
