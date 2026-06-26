@@ -84,16 +84,18 @@ class LauncherWidgetHelperTests(unittest.TestCase):
 
 
 class LauncherBackgroundTests(unittest.TestCase):
-    def test_compact_mode_has_one_purple_glow(self):
+    def test_compact_mode_has_stronger_purple_glow(self):
         glows = glow_spec_for_mode(False, 380, 420)
         self.assertEqual(1, len(glows))
         self.assertEqual("purple", glows[0].role)
-        self.assertLessEqual(glows[0].opacity, 0.14)
+        self.assertGreaterEqual(glows[0].opacity, 0.20)
+        self.assertGreaterEqual(glows[0].radius, 170)
 
-    def test_expanded_mode_adds_blue_project_glow(self):
+    def test_expanded_mode_adds_stronger_blue_project_glow(self):
         glows = glow_spec_for_mode(True, 820, 560)
         self.assertEqual(["purple", "blue"], [glow.role for glow in glows])
-        self.assertLessEqual(glows[1].opacity, 0.10)
+        self.assertGreaterEqual(glows[1].opacity, 0.15)
+        self.assertGreaterEqual(glows[1].radius, 170)
 
     def test_glow_blending_is_clamped(self):
         self.assertEqual("#090B12", blend_for_glow("#090B12", "#8B5CF6", -1))
