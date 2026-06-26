@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from launcher_branding import GlassBrandButton
+from launcher_quiet_branding import QuietGlassBrandButton
 from launcher_state import LaunchOptions
 from launcher_surfaces import CleanRoundedCard
 from launcher_theme import METRICS
@@ -100,7 +100,7 @@ class LaunchOptionsCard(CleanRoundedCard):
         buttons.grid(row=4, column=0, sticky="ew", pady=(scale(6), 0))
         buttons.grid_columnconfigure(0, weight=1, uniform="launch")
         buttons.grid_columnconfigure(1, weight=1, uniform="launch")
-        self.claude_button = GlassBrandButton(
+        self.claude_button = QuietGlassBrandButton(
             buttons,
             role="claude",
             text="Claude Code",
@@ -111,7 +111,7 @@ class LaunchOptionsCard(CleanRoundedCard):
             height=34,
         )
         self.claude_button.grid(row=0, column=0, sticky="ew", padx=(0, scale(4)))
-        self.hermes_button = GlassBrandButton(
+        self.hermes_button = QuietGlassBrandButton(
             buttons,
             role="hermes",
             text="Hermes",
