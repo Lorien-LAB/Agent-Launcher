@@ -2,6 +2,7 @@ import unittest
 
 from launcher_directory_list import section_title
 from launcher_view import DirectoryRow, compose_home_rows, truncate_middle
+from launcher_view_models import layout_spec
 
 
 class LauncherViewHelperTests(unittest.TestCase):
@@ -31,6 +32,9 @@ class LauncherViewHelperTests(unittest.TestCase):
         self.assertEqual("RECENT", section_title("recent"))
         self.assertEqual("SEARCH RESULTS", section_title("search"))
         self.assertEqual("CUSTOM", section_title("custom"))
+
+    def test_expanded_layout_uses_equal_columns(self):
+        self.assertEqual((1, 1), layout_spec(True).column_weights)
 
 
 if __name__ == "__main__":
