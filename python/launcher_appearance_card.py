@@ -4,16 +4,11 @@ import tkinter as tk
 
 from launcher_settings_models import appearance_status_text
 from launcher_state import AppearanceSettings
-from launcher_widgets import (
-    GhostButton,
-    PrimaryButton,
-    RoundedCard,
-    SegmentedControl,
-    ThemedSlider,
-)
+from launcher_surfaces import CleanRoundedCard
+from launcher_widgets import GhostButton, PrimaryButton, SegmentedControl, ThemedSlider
 
 
-class TerminalAppearanceCard(RoundedCard):
+class TerminalAppearanceCard(CleanRoundedCard):
     def __init__(self, master, *, theme, scale, callbacks):
         self.theme = theme
         self.s = scale
@@ -28,25 +23,15 @@ class TerminalAppearanceCard(RoundedCard):
             theme=theme,
             scale=scale,
             height=scale(144),
+            radius=18,
             padding=8,
         )
         body = self.content
         body.grid_columnconfigure(0, weight=1)
-        tk.Label(
-            body,
-            text="TERMINAL APPEARANCE",
-            bg=theme["surface_1"],
-            fg=theme["text_muted"],
-            anchor="w",
-            font=("Segoe UI Semibold", 8),
-        ).grid(row=0, column=0, sticky="ew")
+        tk.Label(body, text="TERMINAL APPEARANCE", bg=theme["surface_1"], fg=theme["text_muted"], anchor="w", font=("Segoe UI Semibold", 8)).grid(row=0, column=0, sticky="ew")
         self.mode_control = SegmentedControl(
             body,
-            options=(
-                ("acrylic", "Acrylic"),
-                ("opacity", "Opacity"),
-                ("none", "Solid"),
-            ),
+            options=(("acrylic", "Acrylic"), ("opacity", "Opacity"), ("none", "Solid")),
             variable=self.mode_var,
             command=lambda _value: self._changed(),
             theme=theme,
@@ -58,57 +43,18 @@ class TerminalAppearanceCard(RoundedCard):
         opacity_row = tk.Frame(body, bg=theme["surface_1"])
         opacity_row.grid(row=2, column=0, sticky="ew", pady=(scale(4), 0))
         opacity_row.grid_columnconfigure(0, weight=1)
-        self.slider = ThemedSlider(
-            opacity_row,
-            variable=self.opacity_var,
-            command=self._opacity_changed,
-            theme=theme,
-            scale=scale,
-            from_=0,
-            to=100,
-        )
+        self.slider = ThemedSlider(opacity_row, variable=self.opacity_var, command=self._opacity_changed, theme=theme, scale=scale, from_=0, to=100)
         self.slider.grid(row=0, column=0, sticky="ew")
-        tk.Label(
-            opacity_row,
-            textvariable=self.opacity_text_var,
-            bg=theme["surface_1"],
-            fg=theme["text_secondary"],
-            width=5,
-            font=("Cascadia Code", 8),
-        ).grid(row=0, column=1, padx=(scale(6), 0))
+        tk.Label(opacity_row, textvariable=self.opacity_text_var, bg=theme["surface_1"], fg=theme["text_secondary"], width=5, font=("Cascadia Code", 8)).grid(row=0, column=1, padx=(scale(6), 0))
 
         actions = tk.Frame(body, bg=theme["surface_1"])
         actions.grid(row=3, column=0, sticky="ew", pady=(scale(5), 0))
         actions.grid_columnconfigure(0, weight=1)
-        self.status_label = tk.Label(
-            actions,
-            textvariable=self.status_var,
-            bg=theme["surface_1"],
-            fg=theme["text_muted"],
-            anchor="w",
-            font=("Segoe UI", 8),
-        )
+        self.status_label = tk.Label(actions, textvariable=self.status_var, bg=theme["surface_1"], fg=theme["text_muted"], anchor="w", font=("Segoe UI", 8))
         self.status_label.grid(row=0, column=0, sticky="ew")
-        self.cancel_button = GhostButton(
-            actions,
-            text="Cancel",
-            command=callbacks.on_appearance_cancel,
-            theme=theme,
-            scale=scale,
-            width=72,
-            height=28,
-        )
+        self.cancel_button = GhostButton(actions, text="Cancel", command=callbacks.on_appearance_cancel, theme=theme, scale=scale, width=72, height=28)
         self.cancel_button.grid(row=0, column=1, padx=(scale(6), 0))
-        self.apply_button = PrimaryButton(
-            actions,
-            role="accent",
-            text="Apply",
-            command=callbacks.on_appearance_apply,
-            theme=theme,
-            scale=scale,
-            width=68,
-            height=28,
-        )
+        self.apply_button = PrimaryButton(actions, role="accent", text="Apply", command=callbacks.on_appearance_apply, theme=theme, scale=scale, width=68, height=28)
         self.apply_button.grid(row=0, column=2, padx=(scale(6), 0))
         self.set_dirty(False)
         self._update_slider()
@@ -125,10 +71,7 @@ class TerminalAppearanceCard(RoundedCard):
 
     def _emit_preview(self):
         self.callbacks.on_appearance_preview(
-            AppearanceSettings(
-                mode=self.mode_var.get(),
-                opacity=int(self.opacity_var.get()),
-            )
+            AppearanceSettings(mode=self.mode_var.get(), opacity=int(self.opacity_var.get()))
         )
 
     def _update_slider(self):
@@ -143,18 +86,8 @@ class TerminalAppearanceCard(RoundedCard):
 
     def set_dirty(self, dirty: bool, applied_now: bool = False):
         self.dirty = bool(dirty)
-        self.status_var.set(
-            appearance_status_text(self.dirty, bool(applied_now))
-        )
-        color = (
-            self.theme["warning"]
-            if self.dirty
-            else (
-                self.theme["success"]
-                if applied_now
-                else self.theme["text_muted"]
-            )
-        )
+        self.status_var.set(appearance_status_text(self.dirty, bool(applied_now)))
+        color = self.theme["warning"] if self.dirty else self.theme["success"] if applied_now else self.theme["text_muted"]
         self.status_label.configure(fg=color)
         self.apply_button.configure_state(self.dirty)
         self.cancel_button.configure_state(self.dirty)
