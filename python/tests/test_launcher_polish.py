@@ -12,6 +12,7 @@ from launcher_dynamic_background import animate_glow
 from launcher_geometry import stable_rounded_rectangle_points
 from launcher_scrollbar import thumb_geometry
 from launcher_state import LauncherStateStore
+from launcher_surfaces import glass_content_inset, glass_layer_spec
 
 
 class LauncherPolishTests(unittest.TestCase):
@@ -24,6 +25,17 @@ class LauncherPolishTests(unittest.TestCase):
         self.assertGreaterEqual(min(ys), 3)
         self.assertLessEqual(max(ys), 43)
         self.assertGreaterEqual(len(points), 40)
+
+    def test_glass_content_stays_clear_of_rounded_corners(self):
+        self.assertEqual(13, glass_content_inset(22, 7))
+        self.assertEqual(14, glass_content_inset(18, 14))
+
+    def test_glass_surface_has_shadow_rim_and_sheen(self):
+        spec = glass_layer_spec(320, 180, 22)
+        self.assertEqual((2, 4, 318, 179), spec.shadow_bounds)
+        self.assertEqual((2, 2, 318, 177), spec.panel_bounds)
+        self.assertGreater(spec.sheen_end_x, spec.sheen_start_x)
+        self.assertLess(spec.inner_radius, spec.outer_radius)
 
     def test_recent_rows_use_remove_action(self):
         self.assertEqual("remove", action_kind_for_section("recent"))
