@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import math
+import weakref
 
-from launcher_background import GlowSpec, LauncherBackground, blend_for_glow
+from launcher_background import (
+    GlowSpec,
+    LauncherBackground,
+    blend_for_glow,
+    glow_spec_for_mode,
+)
 
 
 def animate_glow(spec: GlowSpec, phase: float) -> GlowSpec:
@@ -16,14 +22,42 @@ def animate_glow(spec: GlowSpec, phase: float) -> GlowSpec:
     )
 
 
+def sample_glow_color(background: str, theme: dict, glows, x: float, y: float) -> str:
+    """Approximate the opaque radial-ring color drawn at one logical point."""
+    color = background
+    for spec in glows:
+        distance = math.hypot(float(x) - spec.center_x, float(y) - spec.center_y)
+        if distance > spec.radius:
+            continue
+        fraction = max(1.0 / 28.0, distance / max(1.0, float(spec.radius)))
+        strength = spec.opacity * (1.0 - 0.72 * fraction)
+        color = blend_for_glow(background, theme[spec.role], strength)
+    return color
+
+
 class DynamicLauncherBackground(LauncherBackground):
     def __init__(self, master, *, theme, scale):
         self._phase = 0.0
         self._motion_after = None
+        self._surface_refs = []
         super().__init__(master, theme=theme, scale=scale)
         self.bind("<Map>", lambda _event: self._schedule_motion(), add="+")
         self.bind("<Unmap>", lambda _event: self._cancel_motion(), add="+")
         self._schedule_motion()
+
+    def register_surface(self, widget):
+        for reference in self._surface_refs:
+            if reference() is widget:
+                return
+        self._surface_refs.append(weakref.ref(widget))
+        self.after_idle(self._update_surface_backdrops)
+
+    def unregister_surface(self, widget):
+        self._surface_refs = [
+            reference
+            for reference in self._surface_refs
+            if reference() is not None and reference() is not widget
+        ]
 
     def _reduced_motion(self):
         try:
@@ -51,6 +85,58 @@ class DynamicLauncherBackground(LauncherBackground):
         self.redraw(force=True)
         self._schedule_motion()
 
+    def _logical_size(self):
+        factor = max(0.01, float(self.s(100)) / 100.0)
+        return (
+            max(1, round(max(1, int(self.winfo_width())) / factor)),
+            max(1, round(max(1, int(self.winfo_height())) / factor)),
+            factor,
+        )
+
+    def _animated_glows(self):
+        width, height, _factor = self._logical_size()
+        return [
+            animate_glow(spec, self._phase)
+            for spec in glow_spec_for_mode(self.expanded, width, height)
+        ]
+
+    def redraw(self, force=False):
+        super().redraw(force=force)
+        self._update_surface_backdrops()
+
+    def _update_surface_backdrops(self):
+        if not self.winfo_exists():
+            return
+        glows = self._animated_glows()
+        _width, _height, factor = self._logical_size()
+        try:
+            origin_x = self.winfo_rootx()
+            origin_y = self.winfo_rooty()
+        except Exception:
+            return
+        live_refs = []
+        for reference in self._surface_refs:
+            widget = reference()
+            if widget is None:
+                continue
+            try:
+                if not widget.winfo_exists():
+                    continue
+                center_x = widget.winfo_rootx() - origin_x + widget.winfo_width() / 2
+                center_y = widget.winfo_rooty() - origin_y + widget.winfo_height() / 2
+                color = sample_glow_color(
+                    self.theme["window_bg"],
+                    self.theme,
+                    glows,
+                    center_x / factor,
+                    center_y / factor,
+                )
+                widget.configure(bg=color)
+                live_refs.append(reference)
+            except Exception:
+                continue
+        self._surface_refs = live_refs
+
     def _draw_glow(self, spec):
         spec = animate_glow(spec, self._phase)
         background = self.theme["window_bg"]
@@ -75,4 +161,5 @@ class DynamicLauncherBackground(LauncherBackground):
 
     def destroy(self):
         self._cancel_motion()
+        self._surface_refs = []
         super().destroy()
