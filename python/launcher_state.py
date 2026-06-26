@@ -178,6 +178,19 @@ class LauncherStateStore:
         self.state.recent_directories = [str(path), *remaining][:8]
         self.save()
 
+    def remove_recent(self, path: str) -> bool:
+        normalized = normalize_path(path)
+        if not normalized:
+            return False
+        previous = list(self.state.recent_directories)
+        self.state.recent_directories = [
+            item for item in previous if normalize_path(item) != normalized
+        ]
+        changed = self.state.recent_directories != previous
+        if changed:
+            self.save()
+        return changed
+
     def update_window_position(self, x: int, y: int) -> None:
         self.state.window_x = int(x)
         self.state.window_y = int(y)
